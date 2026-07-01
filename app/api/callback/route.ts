@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { storage } from "@/lib/storage";
-import { REDIS_KEYS, NOTIFY_THRESHOLDS_DAYS } from "@/lib/keys";
+import { NOTIFY_THRESHOLDS_DAYS, keysFor } from "@/lib/keys";
 import { OAUTH_STATE_COOKIE_NAME, verifyOAuthStateCookie } from "@/lib/session";
-import { exchangeCodeForTokens } from "@/lib/spotify";
+import { exchangeCodeForTokens, fetchSpotifyProfile } from "@/lib/spotify";
+import { registerProfile } from "@/lib/profiles";
 
 export const runtime = "nodejs";
 
@@ -45,24 +46,37 @@ export async function GET(request: NextRequest) {
   const cookieStore = await cookies();
   const stateCookie = cookieStore.get(OAUTH_STATE_COOKIE_NAME)?.value;
 
-  const stateValid = await verifyOAuthStateCookie(stateCookie, state, sessionSecret);
-  if (!stateValid) {
+  const stateResult = await verifyOAuthStateCookie(stateCookie, state, sessionSecret);
+  if (!stateResult) {
     return errorPage("Invalid or expired OAuth state. Please try re-authorizing again.");
   }
 
-  try {
-    const tokens = await exchangeCodeForTokens(code);
+  const { profile } = stateResult;
 
+  try {
+    const tokens = await exchangeCodeForTokens(code, profile);
+
+    const keys = keysFor(profile);
     const nowIso = new Date().toISOString();
-    const notifiedKeys = NOTIFY_THRESHOLDS_DAYS.map((d) => REDIS_KEYS.notified(d));
+    const notifiedKeys = NOTIFY_THRESHOLDS_DAYS.map((d) => keys.notified(d));
 
     await Promise.all([
-      storage.set(REDIS_KEYS.refreshToken, tokens.refresh_token),
-      storage.set(REDIS_KEYS.refreshTokenIssuedAt, nowIso),
-      storage.del(REDIS_KEYS.accessToken),
-      storage.del(REDIS_KEYS.reauthRequired),
+      storage.set(keys.refreshToken, tokens.refresh_token),
+      storage.set(keys.refreshTokenIssuedAt, nowIso),
+      storage.del(keys.accessToken),
+      storage.del(keys.reauthRequired),
       ...(notifiedKeys.length > 0 ? [storage.del(...notifiedKeys)] : []),
     ]);
+
+    // Best-effort account metadata for the dashboard, using the fresh token.
+    const account = await fetchSpotifyProfile(tokens.access_token);
+    if (account) {
+      const ops: Promise<unknown>[] = [storage.set(keys.accountId, account.id)];
+      if (account.display_name) ops.push(storage.set(keys.displayName, account.display_name));
+      await Promise.all(ops);
+    }
+
+    await registerProfile(profile);
 
     const response = NextResponse.redirect(new URL("/", request.url));
     response.cookies.delete(OAUTH_STATE_COOKIE_NAME);

@@ -2,6 +2,8 @@
 // Must NOT depend on Node-only APIs (e.g. `jsonwebtoken`, `node:crypto`)
 // because middleware.ts runs on the Edge runtime.
 
+import { DEFAULT_PROFILE } from "@/lib/keys";
+
 const encoder = new TextEncoder();
 
 // Encode a UTF-8 string into an ArrayBuffer-backed Uint8Array. The explicit
@@ -110,27 +112,34 @@ export async function isValidSessionCookie(
 
 export async function createOAuthStateCookieValue(
   state: string,
+  profile: string,
   secret: string
 ): Promise<string> {
-  const payload = JSON.stringify({ state, iat: Date.now() });
+  const payload = JSON.stringify({ state, profile, iat: Date.now() });
   return signValue(payload, secret);
 }
 
+/**
+ * Verify the OAuth state cookie against the state returned by Spotify. Returns
+ * the profile carried in the (signed) cookie on success, or null if the cookie
+ * is missing, tampered, expired, or the state doesn't match.
+ */
 export async function verifyOAuthStateCookie(
   value: string | undefined,
   expectedState: string,
   secret: string
-): Promise<boolean> {
-  if (!value) return false;
+): Promise<{ profile: string } | null> {
+  if (!value) return null;
   const payload = await verifySignedValue(value, secret);
-  if (!payload) return false;
+  if (!payload) return null;
   try {
-    const parsed = JSON.parse(payload) as { state: string; iat: number };
+    const parsed = JSON.parse(payload) as { state: string; profile?: string; iat: number };
     const ageSeconds = (Date.now() - parsed.iat) / 1000;
-    if (ageSeconds < 0 || ageSeconds > OAUTH_STATE_MAX_AGE_SECONDS) return false;
-    return parsed.state === expectedState;
+    if (ageSeconds < 0 || ageSeconds > OAUTH_STATE_MAX_AGE_SECONDS) return null;
+    if (parsed.state !== expectedState) return null;
+    return { profile: parsed.profile ?? DEFAULT_PROFILE };
   } catch {
-    return false;
+    return null;
   }
 }
 

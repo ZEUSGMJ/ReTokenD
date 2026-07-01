@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import {
   OAUTH_STATE_COOKIE_NAME,
@@ -6,14 +6,20 @@ import {
   createOAuthStateCookieValue,
 } from "@/lib/session";
 import { buildAuthorizeUrl, getConfiguredScopes } from "@/lib/spotify";
+import { DEFAULT_PROFILE, isValidProfileId } from "@/lib/keys";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const profile = request.nextUrl.searchParams.get("profile") ?? DEFAULT_PROFILE;
+  if (!isValidProfileId(profile)) {
+    return NextResponse.json({ error: "invalid_profile" }, { status: 400 });
+  }
+
   const sessionSecret = process.env.SESSION_SECRET ?? "";
   const state = crypto.randomUUID();
 
-  const cookieValue = await createOAuthStateCookieValue(state, sessionSecret);
+  const cookieValue = await createOAuthStateCookieValue(state, profile, sessionSecret);
   const cookieStore = await cookies();
   cookieStore.set(OAUTH_STATE_COOKIE_NAME, cookieValue, {
     httpOnly: true,
@@ -23,7 +29,7 @@ export async function GET() {
     maxAge: OAUTH_STATE_MAX_AGE_SECONDS,
   });
 
-  const scopes = await getConfiguredScopes();
-  const authorizeUrl = buildAuthorizeUrl(state, scopes);
+  const scopes = await getConfiguredScopes(profile);
+  const authorizeUrl = await buildAuthorizeUrl(state, scopes, profile);
   return NextResponse.redirect(authorizeUrl);
 }
