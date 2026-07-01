@@ -7,14 +7,17 @@ import type { ScopeGroup } from "@/lib/spotify";
 export function ScopeSettings({
   catalog,
   selected,
+  profile,
 }: {
   catalog: ScopeGroup[];
   selected: string[];
+  profile: string;
 }) {
   const selectedSet = new Set(selected);
 
   return (
     <form action={saveScopes} className="flex flex-col gap-5">
+      <input type="hidden" name="profile" value={profile} />
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         {catalog.map((group) => (
           <fieldset key={group.group} className="flex flex-col gap-2">
