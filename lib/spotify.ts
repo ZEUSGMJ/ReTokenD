@@ -1,7 +1,8 @@
 // Spotify OAuth helpers. Route handlers only (Node runtime).
 
 import { storage } from "@/lib/storage";
-import { REDIS_KEYS } from "@/lib/keys";
+import { keysFor } from "@/lib/keys";
+import { decryptSecret } from "@/lib/crypto";
 
 // The scopes the portfolio actually consumes. Used as the fallback when no
 // custom selection has been saved.
@@ -85,11 +86,11 @@ export const ALL_SCOPE_IDS: ReadonlySet<string> = new Set(
 );
 
 /**
- * Read the scope selection saved by the admin from Redis, falling back to
+ * Read a profile's saved scope selection from Redis, falling back to
  * DEFAULT_SCOPES when nothing (or an empty list) is stored.
  */
-export async function getConfiguredScopes(): Promise<string[]> {
-  const stored = await storage.get<string[]>(REDIS_KEYS.scopes);
+export async function getConfiguredScopes(profile: string): Promise<string[]> {
+  const stored = await storage.get<string[]>(keysFor(profile).scopes);
   if (Array.isArray(stored) && stored.length > 0) return stored;
   return [...DEFAULT_SCOPES];
 }
@@ -103,12 +104,50 @@ export function getRedirectUri(): string {
   return `${baseUrl.replace(/\/$/, "")}/api/callback`;
 }
 
-function getBasicAuthHeader(): string {
-  const clientId = process.env.SPOTIFY_CLIENT_ID;
-  const clientSecret = process.env.SPOTIFY_SECRET_ID;
-  if (!clientId || !clientSecret) {
-    throw new Error("SPOTIFY_CLIENT_ID / SPOTIFY_SECRET_ID env vars are not set");
+// Per-profile credentials. Precedence:
+//   1. dashboard-entered creds stored in Redis (client_secret encrypted at rest)
+//   2. env SPOTIFY_CLIENT_ID_<PROFILE> / SPOTIFY_SECRET_ID_<PROFILE>
+//   3. global env SPOTIFY_CLIENT_ID / SPOTIFY_SECRET_ID
+// (profile upper-cased, "-" -> "_" for the env suffix). Stored and env creds are
+// each resolved as a coherent pair, never mixed.
+function envSuffix(profile: string): string {
+  return profile.toUpperCase().replace(/-/g, "_");
+}
+
+/** True if the profile has dashboard-entered credentials stored in Redis. */
+export async function hasStoredCredentials(profile: string): Promise<boolean> {
+  const keys = keysFor(profile);
+  const enc = await storage.get<string>(keys.clientSecretEnc);
+  return typeof enc === "string" && enc.length > 0;
+}
+
+async function credentialsFor(
+  profile: string
+): Promise<{ clientId: string; clientSecret: string }> {
+  const keys = keysFor(profile);
+  const [storedId, storedSecretEnc] = await Promise.all([
+    storage.get<string>(keys.clientId),
+    storage.get<string>(keys.clientSecretEnc),
+  ]);
+
+  if (storedId && storedSecretEnc) {
+    return { clientId: storedId, clientSecret: decryptSecret(storedSecretEnc) };
   }
+
+  const suffix = envSuffix(profile);
+  const clientId = process.env[`SPOTIFY_CLIENT_ID_${suffix}`] ?? process.env.SPOTIFY_CLIENT_ID;
+  const clientSecret =
+    process.env[`SPOTIFY_SECRET_ID_${suffix}`] ?? process.env.SPOTIFY_SECRET_ID;
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      `Spotify credentials not set for profile "${profile}" (dashboard or SPOTIFY_CLIENT_ID / SPOTIFY_SECRET_ID)`
+    );
+  }
+  return { clientId, clientSecret };
+}
+
+async function getBasicAuthHeader(profile: string): Promise<string> {
+  const { clientId, clientSecret } = await credentialsFor(profile);
   const encoded = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
   return `Basic ${encoded}`;
 }
@@ -138,7 +177,8 @@ async function parseJsonSafe(res: Response): Promise<unknown | null> {
 
 /** Exchange an authorization code for tokens during the initial OAuth callback. */
 export async function exchangeCodeForTokens(
-  code: string
+  code: string,
+  profile: string
 ): Promise<SpotifyTokenResponse> {
   const body = new URLSearchParams({
     grant_type: "authorization_code",
@@ -149,7 +189,7 @@ export async function exchangeCodeForTokens(
   const res = await fetch(SPOTIFY_TOKEN_URL, {
     method: "POST",
     headers: {
-      Authorization: getBasicAuthHeader(),
+      Authorization: await getBasicAuthHeader(profile),
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: body.toString(),
@@ -175,7 +215,10 @@ export type RefreshResult =
   | { ok: false; invalidGrant: false; error: string };
 
 /** Refresh an access token using a stored refresh token. */
-export async function refreshAccessToken(refreshToken: string): Promise<RefreshResult> {
+export async function refreshAccessToken(
+  refreshToken: string,
+  profile: string
+): Promise<RefreshResult> {
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
@@ -184,7 +227,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshR
   const res = await fetch(SPOTIFY_TOKEN_URL, {
     method: "POST",
     headers: {
-      Authorization: getBasicAuthHeader(),
+      Authorization: await getBasicAuthHeader(profile),
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: body.toString(),
@@ -210,14 +253,39 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshR
   return { ok: true, data: data as SpotifyTokenResponse };
 }
 
-export function buildAuthorizeUrl(state: string, scopes: string[]): string {
+export async function buildAuthorizeUrl(
+  state: string,
+  scopes: string[],
+  profile: string
+): Promise<string> {
+  const { clientId } = await credentialsFor(profile);
   const params = new URLSearchParams({
     response_type: "code",
-    client_id: process.env.SPOTIFY_CLIENT_ID ?? "",
+    client_id: clientId,
     scope: scopes.join(" "),
     redirect_uri: getRedirectUri(),
     state,
     show_dialog: "true",
   });
   return `${SPOTIFY_AUTHORIZE_URL}?${params.toString()}`;
+}
+
+export interface SpotifyAccount {
+  id: string;
+  display_name: string | null;
+}
+
+/** Fetch the authorizing user's basic account info. Best-effort: returns null on any failure. */
+export async function fetchSpotifyProfile(accessToken: string): Promise<SpotifyAccount | null> {
+  try {
+    const res = await fetch("https://api.spotify.com/v1/me", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { id?: string; display_name?: string | null };
+    if (!data.id) return null;
+    return { id: data.id, display_name: data.display_name ?? null };
+  } catch {
+    return null;
+  }
 }
