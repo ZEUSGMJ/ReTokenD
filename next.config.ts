@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Self-contained server bundle for Docker / self-hosting (.next/standalone).
+  output: "standalone",
   allowedDevOrigins: ['127.0.0.1'],
   async headers() {
     return [
