@@ -4,6 +4,8 @@ import { Countdown } from "@/app/components/Countdown";
 import { StatusBadge, type TokenStatus } from "@/app/components/StatusBadge";
 import { ScopeSettings } from "@/app/components/ScopeSettings";
 import { ProfileCredentialsForm } from "@/app/components/ProfileCredentialsForm";
+import { DeleteProfileButton } from "@/app/components/DeleteProfileButton";
+import { DEFAULT_PROFILE } from "@/lib/keys";
 import { SPOTIFY_SCOPE_CATALOG } from "@/lib/spotify";
 import { testNotification, toggleProfileEnabled } from "@/app/actions";
 
@@ -129,6 +131,7 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
               {enabled ? "Disable" : "Enable"}
             </Button>
           </form>
+          {profile !== DEFAULT_PROFILE && <DeleteProfileButton profile={profile} />}
         </div>
 
         {/* Spotify app credentials */}

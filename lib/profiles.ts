@@ -6,6 +6,7 @@ import { storage } from "@/lib/storage";
 import {
   DEFAULT_PROFILE,
   LEGACY_KEYS,
+  NOTIFY_THRESHOLDS_DAYS,
   PROFILES_REGISTRY_KEY,
   keysFor,
 } from "@/lib/keys";
@@ -88,6 +89,38 @@ export async function registerProfile(id: string): Promise<void> {
   if ((await storage.get<string>(keysFor(id).enabled)) === null) {
     await storage.set(keysFor(id).enabled, "1");
   }
+}
+
+/**
+ * Delete a profile: purge all of its Redis keys and drop it from the registry.
+ * The `default` profile can't be deleted (it's the migration target and the
+ * `/api/token` fallback).
+ */
+export async function deleteProfile(id: string): Promise<void> {
+  if (id === DEFAULT_PROFILE) return;
+
+  const keys = keysFor(id);
+  await storage.del(
+    keys.refreshToken,
+    keys.refreshTokenIssuedAt,
+    keys.accessToken,
+    keys.reauthRequired,
+    keys.lastRefresh,
+    keys.scopes,
+    keys.refreshLock,
+    keys.enabled,
+    keys.accountId,
+    keys.displayName,
+    keys.clientId,
+    keys.clientSecretEnc,
+    ...NOTIFY_THRESHOLDS_DAYS.map((d) => keys.notified(d))
+  );
+
+  const registry = (await storage.get<string[]>(PROFILES_REGISTRY_KEY)) ?? [];
+  await storage.set(
+    PROFILES_REGISTRY_KEY,
+    registry.filter((p) => p !== id)
+  );
 }
 
 export interface ProfileMeta {

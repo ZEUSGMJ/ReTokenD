@@ -7,7 +7,11 @@ import { storage } from "@/lib/storage";
 import { DEFAULT_PROFILE, isValidProfileId, keysFor } from "@/lib/keys";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 import { ALL_SCOPE_IDS } from "@/lib/spotify";
-import { registerProfile, setProfileEnabled } from "@/lib/profiles";
+import {
+  deleteProfile as removeProfile,
+  registerProfile,
+  setProfileEnabled,
+} from "@/lib/profiles";
 import { notify, buildStatusEmbed } from "@/lib/notify";
 import { encryptSecret } from "@/lib/crypto";
 
@@ -121,6 +125,14 @@ export async function saveProfileCredentials(
 
   revalidatePath("/");
   return { ok: true };
+}
+
+/** Delete a profile entirely (purges its token + settings). `default` is protected. */
+export async function deleteProfile(formData: FormData) {
+  const profile = String(formData.get("profile") ?? "");
+  if (!isValidProfileId(profile) || profile === DEFAULT_PROFILE) return;
+  await removeProfile(profile);
+  revalidatePath("/");
 }
 
 /** Remove a profile's stored credentials so it falls back to the env/global Spotify app. */
