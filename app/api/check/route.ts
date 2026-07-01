@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { redis } from "@/lib/redis";
+import { storage } from "@/lib/storage";
 import { REDIS_KEYS, NOTIFY_THRESHOLDS_DAYS, SIX_MONTHS_MS } from "@/lib/keys";
 import { notify, buildStatusEmbed } from "@/lib/notify";
 import { bearerMatches } from "@/lib/auth";
@@ -15,8 +15,8 @@ export async function GET(request: NextRequest) {
   }
 
   const [issuedAt, reauthRequired] = await Promise.all([
-    redis.get<string>(REDIS_KEYS.refreshTokenIssuedAt),
-    redis.get<string>(REDIS_KEYS.reauthRequired),
+    storage.get<string>(REDIS_KEYS.refreshTokenIssuedAt),
+    storage.get<string>(REDIS_KEYS.reauthRequired),
   ]);
 
   const notifications: string[] = [];
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
     for (const threshold of sortedThresholds) {
       if (daysLeft <= threshold) {
         const notifiedKey = REDIS_KEYS.notified(threshold);
-        const alreadyNotified = await redis.get<string>(notifiedKey);
+        const alreadyNotified = await storage.get<string>(notifiedKey);
         if (!alreadyNotified) {
           await notify(
             `ReTokenD: refresh token expires in ${displayDaysLeft} day(s) (threshold: ${threshold}). Re-authorize soon at the dashboard.`,
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
               }),
             ]
           );
-          await redis.set(notifiedKey, "1");
+          await storage.set(notifiedKey, "1");
           notifications.push(`threshold_${threshold}`);
           break;
         }

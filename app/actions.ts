@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { redis } from "@/lib/redis";
+import { storage } from "@/lib/storage";
 import { REDIS_KEYS } from "@/lib/keys";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 import { ALL_SCOPE_IDS } from "@/lib/spotify";
@@ -26,7 +26,7 @@ export async function saveScopes(formData: FormData) {
     .map((v) => String(v))
     .filter((id) => ALL_SCOPE_IDS.has(id));
 
-  await redis.set(REDIS_KEYS.scopes, selected);
+  await storage.set(REDIS_KEYS.scopes, selected);
   revalidatePath("/");
 }
 

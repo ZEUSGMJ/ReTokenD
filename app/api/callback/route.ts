@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { redis } from "@/lib/redis";
+import { storage } from "@/lib/storage";
 import { REDIS_KEYS, NOTIFY_THRESHOLDS_DAYS } from "@/lib/keys";
 import { OAUTH_STATE_COOKIE_NAME, verifyOAuthStateCookie } from "@/lib/session";
 import { exchangeCodeForTokens } from "@/lib/spotify";
@@ -57,11 +57,11 @@ export async function GET(request: NextRequest) {
     const notifiedKeys = NOTIFY_THRESHOLDS_DAYS.map((d) => REDIS_KEYS.notified(d));
 
     await Promise.all([
-      redis.set(REDIS_KEYS.refreshToken, tokens.refresh_token),
-      redis.set(REDIS_KEYS.refreshTokenIssuedAt, nowIso),
-      redis.del(REDIS_KEYS.accessToken),
-      redis.del(REDIS_KEYS.reauthRequired),
-      ...(notifiedKeys.length > 0 ? [redis.del(...notifiedKeys)] : []),
+      storage.set(REDIS_KEYS.refreshToken, tokens.refresh_token),
+      storage.set(REDIS_KEYS.refreshTokenIssuedAt, nowIso),
+      storage.del(REDIS_KEYS.accessToken),
+      storage.del(REDIS_KEYS.reauthRequired),
+      ...(notifiedKeys.length > 0 ? [storage.del(...notifiedKeys)] : []),
     ]);
 
     const response = NextResponse.redirect(new URL("/", request.url));

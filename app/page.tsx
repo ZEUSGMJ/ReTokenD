@@ -1,4 +1,4 @@
-import { redis } from "@/lib/redis";
+import { storage } from "@/lib/storage";
 import { REDIS_KEYS, SIX_MONTHS_MS } from "@/lib/keys";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,9 +20,9 @@ function formatDate(iso: string | null): string {
 
 export default async function Dashboard() {
   const [issuedAt, lastRefresh, reauthRequired, configuredScopes] = await Promise.all([
-    redis.get<string>(REDIS_KEYS.refreshTokenIssuedAt),
-    redis.get<string>(REDIS_KEYS.lastRefresh),
-    redis.get<string>(REDIS_KEYS.reauthRequired),
+    storage.get<string>(REDIS_KEYS.refreshTokenIssuedAt),
+    storage.get<string>(REDIS_KEYS.lastRefresh),
+    storage.get<string>(REDIS_KEYS.reauthRequired),
     getConfiguredScopes(),
   ]);
 

@@ -1,6 +1,6 @@
 // Spotify OAuth helpers. Route handlers only (Node runtime).
 
-import { redis } from "@/lib/redis";
+import { storage } from "@/lib/storage";
 import { REDIS_KEYS } from "@/lib/keys";
 
 // The scopes the portfolio actually consumes. Used as the fallback when no
@@ -89,7 +89,7 @@ export const ALL_SCOPE_IDS: ReadonlySet<string> = new Set(
  * DEFAULT_SCOPES when nothing (or an empty list) is stored.
  */
 export async function getConfiguredScopes(): Promise<string[]> {
-  const stored = await redis.get<string[]>(REDIS_KEYS.scopes);
+  const stored = await storage.get<string[]>(REDIS_KEYS.scopes);
   if (Array.isArray(stored) && stored.length > 0) return stored;
   return [...DEFAULT_SCOPES];
 }
