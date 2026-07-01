@@ -1,109 +1,149 @@
 # ReTokenD
 
-A private, password-gated Next.js (App Router) app that owns a single Spotify
-refresh token, hands short-lived access tokens to other projects, shows a
-live countdown to the token's 6-month expiry, and lets you re-authorize with
-one click. See `CLAUDE.md` and `BUILD_SPEC.md` for the full design.
+A self-hosted **Spotify OAuth token broker**. It owns your Spotify refresh
+token(s), hands short-lived access tokens to your other projects, shows a live
+countdown to each token's 6-month expiry, and lets you re-authorize with one
+click — so a single re-auth heals every consumer at once instead of pasting a
+new token into several project envs.
+
+Run it on your own box with Docker + local Redis, or on Vercel with Upstash.
+Manage one Spotify account or several, each as an independent **profile**.
+
+> Not affiliated with Spotify. You bring your own Spotify Developer credentials.
+
+## Features
+
+- **Self-hostable** — Docker + local Redis, or Vercel + Upstash. Storage backend
+  is pluggable and auto-selected from env.
+- **Multiple Spotify profiles** — one broker, many independent authorizations
+  (`default`, `portfolio`, `personal`, …), each with its own token, scopes,
+  countdown, and optional dedicated Spotify app credentials.
+- **Never leaks refresh tokens** — `/api/token` returns an access token only.
+- **Expiry countdown + Discord alerts** — daily threshold checks (14/7/1 days)
+  and immediate re-auth alerts.
+- **Password-gated & hidden from search engines.**
 
 ## Stack
 
-- Next.js (App Router, TypeScript) on Vercel
-- Tailwind CSS + shadcn/ui (card, button, badge)
-- `@upstash/redis` for storage (single source of truth for the refresh token)
-- Discord webhook for expiry / re-auth notifications
-- Vercel Cron for the daily threshold check
+- Next.js 16 (App Router, TypeScript), React 19
+- Tailwind CSS v4 + shadcn/ui
+- Storage: local Redis (`redis`) **or** Upstash (`@upstash/redis`) behind one
+  abstraction (`lib/storage`)
+- Discord webhook notifications; cron via Vercel or any external scheduler
 
-## Setup
+## Storage backends
 
-### 1. Install dependencies
+The backend is chosen from env at runtime, in this order:
+
+1. `REDIS_URL` → local / self-hosted Redis (e.g. `redis://localhost:6379`)
+2. `KV_REST_API_URL` + `KV_REST_API_TOKEN` → Upstash REST (serverless / Vercel)
+3. neither set → the app throws a clear error on first request
+
+The rest of the app never knows which backend is live.
+
+## Quick start — Docker (self-host)
 
 ```bash
-pnpm install
+cp .env.example .env      # fill in the values (leave REDIS_URL blank; compose sets it)
+docker compose up --build
 ```
 
-### 2. Spotify app configuration (manual, one-time)
+This starts the app on `http://localhost:3000` plus a Redis container with
+`appendonly` persistence on a named volume (`redis_data`). Token data survives
+restarts, rebuilds, and `docker compose down && up` — it's only lost if you
+remove the volume (`docker compose down -v`).
 
-In the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard),
-open your **PROD** app (the one whose refresh token this broker will own) and
-add these **Redirect URIs**:
+> Set `BASE_URL` to the URL you actually browse (and register the matching
+> `<BASE_URL>/api/callback` in Spotify). For Spotify, `http://` is only allowed
+> for the `127.0.0.1` loopback — not `localhost`.
 
-- `https://<your-broker-domain>/api/callback` (production)
-- `http://127.0.0.1:3000/api/callback` (local dev)
+## Quick start — Vercel + Upstash
 
-Keep your existing DEV app/redirect URIs untouched if other projects use them
-for local development — this broker only needs the PROD app's client ID/secret.
+1. Install the **Upstash** integration from the Vercel Marketplace and link it
+   to the project — it injects `KV_REST_API_URL` / `KV_REST_API_TOKEN`.
+2. Set the remaining env vars (below) in the Vercel project.
+3. Deploy. The `vercel.json` cron (`0 9 * * *` → `/api/check`) is picked up
+   automatically. Leave `REDIS_URL` unset so Upstash is used.
 
-### 3. Discord webhook (manual, one-time)
+## Other self-host targets
 
-1. Create a private Discord server (or use an existing one) and a channel for
-   alerts.
-2. Channel Settings → Integrations → Webhooks → New Webhook.
-3. Copy the webhook URL into `DISCORD_WEBHOOK_URL`.
-4. Enable mobile push notifications for that channel in the Discord app so
-   expiry alerts reach your phone.
+The container runs anywhere that runs Docker: **Docker Compose, Coolify,
+Portainer, CasaOS, Unraid, TrueNAS SCALE, a Linux VPS, Railway, Fly.io,
+Render**, etc. Point `REDIS_URL` at a Redis instance (bundled or managed) and
+set the env vars. Vercel is just one option, not a requirement.
 
-### 4. Upstash Redis (Vercel Marketplace)
+## Environment variables
 
-Install the Upstash integration from the Vercel Marketplace and link it to
-this project. It injects `KV_REST_API_URL` and `KV_REST_API_TOKEN`
-automatically into your Vercel environment variables — no manual copying
-needed for deployed environments. For local dev, pull them with
-`vercel env pull` or copy them manually into `.env.local`.
+Copy `.env.example` to `.env` (Docker) or `.env.local` (local dev) and fill in:
 
-### 5. Environment variables
-
-Copy `.env.example` to `.env.local` and fill in every value:
-
-| Var | Where it comes from |
-|-----|----------------------|
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_SECRET_ID` | Spotify Developer Dashboard, PROD app |
-| `BROKER_SECRET` | Generate your own random string (e.g. `openssl rand -hex 32`) — shared with consumer projects |
-| `ADMIN_PASSWORD` | Pick a strong password |
-| `SESSION_SECRET` | Generate your own random string (e.g. `openssl rand -hex 32`) |
-| `BASE_URL` | Public broker URL (no trailing slash); `http://127.0.0.1:3000` for local dev |
-| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | Upstash, via Vercel Marketplace integration |
-| `CRON_SECRET` | Generate your own random string; Vercel Cron automatically sends it as the bearer token if you set the project's "Cron Job Secret" in Vercel, or set it manually and configure the cron caller to match |
-| `DISCORD_WEBHOOK_URL` | From the Discord webhook setup above |
+| Var | Notes |
+|-----|-------|
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_SECRET_ID` | Default Spotify app credentials (all profiles) |
+| `SPOTIFY_CLIENT_ID_<PROFILE>` / `SPOTIFY_SECRET_ID_<PROFILE>` | Optional per-profile override; suffix = profile id upper-cased, `-`→`_` |
+| `BROKER_SECRET` | Bearer secret consumer projects send to `/api/token` |
+| `ADMIN_PASSWORD` | Gates the dashboard and OAuth routes |
+| `SESSION_SECRET` | Signs the session + OAuth-state cookies (`openssl rand -hex 32`) |
+| `CREDENTIALS_SECRET` | Optional. Encrypts dashboard-entered client secrets; falls back to `SESSION_SECRET` |
+| `BASE_URL` | Public broker URL, no trailing slash; builds the OAuth redirect URI |
+| `REDIS_URL` | Local Redis connection string (self-host) — **or** leave blank and use Upstash |
+| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | Upstash (Vercel Marketplace) |
+| `CRON_SECRET` | Bearer token `/api/check` requires |
+| `DISCORD_WEBHOOK_URL` | Discord webhook for alerts (embeds are labeled per profile) |
 
 Never commit real values — `.gitignore` excludes all `.env*` files.
 
-### 6. Run locally
+## Spotify app configuration (one-time)
 
-```bash
-pnpm dev
-```
+In the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard),
+add these **Redirect URIs** (every profile shares the same callback — the
+profile is carried in signed OAuth state, not the URL):
 
-Visit `http://127.0.0.1:3000/login`, sign in with `ADMIN_PASSWORD`, then click
-**Re-authorize with Spotify** to perform the first OAuth grant and populate
-Redis.
+- `https://<your-broker-domain>/api/callback` (production)
+- `http://127.0.0.1:3000/api/callback` (local dev — use `127.0.0.1`, not `localhost`)
 
-### 7. Deploy
+Each profile can use its own Spotify app. Set its credentials either in the
+dashboard (**Spotify app** section on the profile card — the client secret is
+encrypted at rest) or via `SPOTIFY_CLIENT_ID_<PROFILE>` env vars; dashboard
+values win. Register the **same** callback URL on every such app.
 
-Deploy to Vercel, set all env vars from `.env.example` in the Vercel project
-settings (Production + Preview as needed), and set `BASE_URL` to your real
-deployed URL. The `vercel.json` cron (`0 9 * * *` → `/api/check`) is picked up
-automatically on deploy.
+## Profiles
+
+The dashboard lists one card per profile. `default` is created automatically —
+existing single-token installs migrate into it on first load with no manual
+step. Add more with **Add profile**, then **Re-authorize** each to grant it a
+Spotify login. Cards show status, account, countdown, dates, and scopes, and let
+you re-authorize, save scopes, send a test alert, or disable the profile.
 
 ## Consumer projects
 
-Other projects fetch a short-lived access token with:
-
 ```bash
-curl -H "Authorization: Bearer $BROKER_SECRET" https://<broker-domain>/api/token
+# default profile
+curl -H "Authorization: Bearer $BROKER_SECRET" https://<broker>/api/token
+# a specific profile
+curl -H "Authorization: Bearer $BROKER_SECRET" "https://<broker>/api/token?profile=portfolio"
 ```
 
-Response: `{ "access_token": "...", "expires_at": <epoch ms> }`. The endpoint
-never returns the refresh token. A `409 { "error": "reauth_required" }`
-response means the refresh token was rejected by Spotify (`invalid_grant`) —
-visit the dashboard and click **Re-authorize**.
+Response: `{ "access_token": "...", "expires_at": <epoch ms>, "profile": "..." }`.
+The refresh token is never returned. A `409 { "error": "reauth_required" }`
+means Spotify rejected the refresh token — open the dashboard and re-authorize.
+Other errors: `401` (bad bearer), `404` (unknown profile), `403` (disabled).
+
+## Cron / scheduled checks
+
+`/api/check` (bearer-gated by `CRON_SECRET`) iterates every enabled profile and
+sends Discord alerts on threshold crossings or re-auth. Trigger it daily via:
+
+- **Vercel Cron** — `vercel.json` (already configured), or
+- **Any external scheduler** — host cron, [cron-job.org](https://cron-job.org),
+  Uptime Kuma, a systemd timer, or GitHub Actions — hitting
+  `https://<broker>/api/check` with `Authorization: Bearer $CRON_SECRET`.
 
 ## Security notes
 
-- Secrets live only in environment variables / Redis, never in code.
+- Secrets live only in env / Redis, never in code. Client secrets are never
+  stored in Redis.
 - `/api/token` is bearer-gated and returns only an access token.
-- `/api/check` is gated by `CRON_SECRET`.
-- All human-facing routes (`/`, `/login`, `/api/login`, `/api/callback`) are
-  gated by a signed, httpOnly, secure session cookie set after a correct
-  `ADMIN_PASSWORD`.
-- The app is hidden from search engines via `app/robots.ts`, `noindex`
-  metadata, and an `X-Robots-Tag` response header.
+- Human-facing routes are gated by a signed, httpOnly, secure session cookie.
+- Constant-time comparisons for bearer/session checks.
+- Hidden from search engines via `robots.ts`, `noindex` metadata, and an
+  `X-Robots-Tag` header.
