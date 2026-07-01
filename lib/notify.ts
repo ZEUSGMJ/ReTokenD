@@ -26,22 +26,25 @@ export function buildStatusEmbed({
   daysLeft,
   expiresAtIso,
   footer,
+  profile,
 }: {
   description: string;
   statusLabel: string;
   daysLeft: number | null;
   expiresAtIso: string | null;
   footer?: string;
+  profile?: string;
 }): DiscordEmbed {
   const expiresAtEpoch = expiresAtIso
     ? Math.floor(new Date(expiresAtIso).getTime() / 1000)
     : null;
 
   return {
-    title: BROKER_EMBED_TITLE,
+    title: profile ? `${BROKER_EMBED_TITLE} — ${profile}` : BROKER_EMBED_TITLE,
     description,
     color: SPOTIFY_GREEN,
     fields: [
+      ...(profile ? [{ name: "Profile", value: profile, inline: true }] : []),
       { name: "Status", value: statusLabel, inline: true },
       {
         name: "Days Remaining",

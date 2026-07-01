@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { storage } from "@/lib/storage";
-import { REDIS_KEYS } from "@/lib/keys";
+import { DEFAULT_PROFILE, isValidProfileId, keysFor, type ProfileKeys } from "@/lib/keys";
 import { refreshAccessToken } from "@/lib/spotify";
+import { isProfileEnabled, profileExists } from "@/lib/profiles";
 import { bearerMatches } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
 // Read the cached access token and compute expires_at from its remaining TTL.
-async function readCachedAccessToken(): Promise<{ access_token: string; expires_at: number } | null> {
-  const cachedAccessToken = await storage.get<string>(REDIS_KEYS.accessToken);
+async function readCachedAccessToken(
+  keys: ProfileKeys
+): Promise<{ access_token: string; expires_at: number } | null> {
+  const cachedAccessToken = await storage.get<string>(keys.accessToken);
   if (!cachedAccessToken) return null;
-  const ttl = await storage.ttl(REDIS_KEYS.accessToken);
+  const ttl = await storage.ttl(keys.accessToken);
   const expiresAt = Date.now() + Math.max(ttl, 0) * 1000;
   return { access_token: cachedAccessToken, expires_at: expiresAt };
 }
@@ -23,41 +26,54 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  // Serve cached access token if present.
-  const cached = await readCachedAccessToken();
-  if (cached) {
-    return NextResponse.json(cached);
+  const profile = request.nextUrl.searchParams.get("profile") ?? DEFAULT_PROFILE;
+  if (!isValidProfileId(profile)) {
+    return NextResponse.json({ error: "invalid_profile" }, { status: 400 });
+  }
+  if (!(await profileExists(profile))) {
+    return NextResponse.json({ error: "unknown_profile" }, { status: 404 });
+  }
+  if (!(await isProfileEnabled(profile))) {
+    return NextResponse.json({ error: "profile_disabled" }, { status: 403 });
   }
 
-  const refreshToken = await storage.get<string>(REDIS_KEYS.refreshToken);
+  const keys = keysFor(profile);
+
+  // Serve cached access token if present.
+  const cached = await readCachedAccessToken(keys);
+  if (cached) {
+    return NextResponse.json({ ...cached, profile });
+  }
+
+  const refreshToken = await storage.get<string>(keys.refreshToken);
   if (!refreshToken) {
-    return NextResponse.json({ error: "reauth_required" }, { status: 409 });
+    return NextResponse.json({ error: "reauth_required", profile }, { status: 409 });
   }
 
   // Single-flight: only one request should hit Spotify's refresh endpoint at
   // a time. Losers poll the access-token cache briefly, then fall through to
   // a normal refresh as a safety valve if the winner doesn't finish in time.
-  const gotLock = await storage.acquireLock(REDIS_KEYS.refreshLock, 10);
+  const gotLock = await storage.acquireLock(keys.refreshLock, 10);
 
   if (!gotLock) {
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 200));
-      const cachedWhilePolling = await readCachedAccessToken();
+      const cachedWhilePolling = await readCachedAccessToken(keys);
       if (cachedWhilePolling) {
-        return NextResponse.json(cachedWhilePolling);
+        return NextResponse.json({ ...cachedWhilePolling, profile });
       }
     }
     // Timed out waiting for the lock holder — fall through and refresh anyway.
   }
 
   try {
-    const result = await refreshAccessToken(refreshToken);
+    const result = await refreshAccessToken(refreshToken, profile);
 
     if (!result.ok) {
       if (result.invalidGrant) {
         // Do NOT retry. Flag for re-auth.
-        await storage.set(REDIS_KEYS.reauthRequired, "1");
-        return NextResponse.json({ error: "reauth_required" }, { status: 409 });
+        await storage.set(keys.reauthRequired, "1");
+        return NextResponse.json({ error: "reauth_required", profile }, { status: 409 });
       }
       console.error("Spotify refresh failed", result.error);
       return NextResponse.json({ error: "spotify_error" }, { status: 502 });
@@ -68,23 +84,23 @@ export async function GET(request: NextRequest) {
     const nowIso = new Date().toISOString();
 
     const ops: Promise<unknown>[] = [
-      storage.setWithTTL(REDIS_KEYS.accessToken, access_token, ttlSeconds),
-      storage.set(REDIS_KEYS.lastRefresh, nowIso),
+      storage.setWithTTL(keys.accessToken, access_token, ttlSeconds),
+      storage.set(keys.lastRefresh, nowIso),
     ];
 
     // If Spotify rotated the refresh token, store the new one — but NEVER
     // touch issued_at here; that is only set on full re-auth in /api/callback.
     if (newRefreshToken && newRefreshToken !== refreshToken) {
-      ops.push(storage.set(REDIS_KEYS.refreshToken, newRefreshToken));
+      ops.push(storage.set(keys.refreshToken, newRefreshToken));
     }
 
     await Promise.all(ops);
 
     const expiresAt = Date.now() + ttlSeconds * 1000;
-    return NextResponse.json({ access_token, expires_at: expiresAt });
+    return NextResponse.json({ access_token, expires_at: expiresAt, profile });
   } finally {
     if (gotLock) {
-      await storage.del(REDIS_KEYS.refreshLock);
+      await storage.del(keys.refreshLock);
     }
   }
 }
