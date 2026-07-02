@@ -2,11 +2,7 @@ import type { StorageAdapter } from "@/lib/storage/types";
 import { createUpstashAdapter } from "@/lib/storage/upstash";
 import { createNodeRedisAdapter } from "@/lib/storage/node-redis";
 
-// Backend selection. Precedence:
-//   1. REDIS_URL            -> local / self-hosted Redis (node-redis)
-//   2. KV_REST_API_*        -> Upstash REST (serverless / Vercel)
-//   3. throw                -> misconfigured deployment
-// The rest of the app imports `storage` and never knows which backend is live.
+// Backend precedence: REDIS_URL > KV_REST_API_* (Upstash) > throw.
 function selectAdapter(): StorageAdapter {
   const redisUrl = process.env.REDIS_URL;
   if (redisUrl) {
@@ -24,8 +20,7 @@ function selectAdapter(): StorageAdapter {
   );
 }
 
-// Resolve lazily on first use, not at import time, so `next build` (which has
-// no secrets) never trips the "no backend configured" error just by bundling.
+// lazy so `next build` (no secrets) doesn't throw at import time
 let adapter: StorageAdapter | null = null;
 function getAdapter(): StorageAdapter {
   return (adapter ??= selectAdapter());

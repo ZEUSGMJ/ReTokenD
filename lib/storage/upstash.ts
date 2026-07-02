@@ -1,11 +1,8 @@
 import { Redis } from "@upstash/redis";
 import { decode, encode, type StorageAdapter } from "@/lib/storage/types";
 
-// Upstash REST adapter (serverless / Vercel). We disable the client's
-// automatic (de)serialization and JSON-encode values ourselves so the on-wire
-// format is identical to the node-redis adapter. This also matches how the
-// previous auto-serializing client stored data, so existing Upstash
-// deployments keep reading cleanly.
+// Upstash REST adapter (serverless). Manual JSON encoding keeps the wire
+// format identical to the node-redis adapter.
 export function createUpstashAdapter(url: string, token: string): StorageAdapter {
   const redis = new Redis({ url, token, automaticDeserialization: false });
 

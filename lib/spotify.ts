@@ -4,17 +4,15 @@ import { storage } from "@/lib/storage";
 import { keysFor } from "@/lib/keys";
 import { decryptSecret } from "@/lib/crypto";
 
-// The scopes the portfolio actually consumes. Used as the fallback when no
-// custom selection has been saved.
+// fallback when no custom selection is saved
 export const DEFAULT_SCOPES = [
   "user-top-read",
   "user-read-currently-playing",
   "user-read-recently-played",
 ] as const;
 
-// Full catalog of standard Spotify scopes, grouped for the settings UI.
-// Partner-only Open Access (SOA) / entitlement scopes are intentionally omitted.
-// Ref: https://developer.spotify.com/documentation/web-api/concepts/scopes
+// Standard scopes only; partner-only SOA scopes omitted.
+// https://developer.spotify.com/documentation/web-api/concepts/scopes
 export interface ScopeGroup {
   group: string;
   scopes: { id: string; label: string }[];
@@ -80,15 +78,10 @@ export const SPOTIFY_SCOPE_CATALOG: ScopeGroup[] = [
   },
 ];
 
-// Flat set of every valid scope id, for whitelisting saved selections.
 export const ALL_SCOPE_IDS: ReadonlySet<string> = new Set(
   SPOTIFY_SCOPE_CATALOG.flatMap((g) => g.scopes.map((s) => s.id))
 );
 
-/**
- * Read a profile's saved scope selection from Redis, falling back to
- * DEFAULT_SCOPES when nothing (or an empty list) is stored.
- */
 export async function getConfiguredScopes(profile: string): Promise<string[]> {
   const stored = await storage.get<string[]>(keysFor(profile).scopes);
   if (Array.isArray(stored) && stored.length > 0) return stored;
@@ -104,17 +97,12 @@ export function getRedirectUri(): string {
   return `${baseUrl.replace(/\/$/, "")}/api/callback`;
 }
 
-// Per-profile credentials. Precedence:
-//   1. dashboard-entered creds stored in Redis (client_secret encrypted at rest)
-//   2. env SPOTIFY_CLIENT_ID_<PROFILE> / SPOTIFY_SECRET_ID_<PROFILE>
-//   3. global env SPOTIFY_CLIENT_ID / SPOTIFY_SECRET_ID
-// (profile upper-cased, "-" -> "_" for the env suffix). Stored and env creds are
-// each resolved as a coherent pair, never mixed.
+// Credential precedence: Redis (dashboard) > SPOTIFY_CLIENT_ID_<PROFILE> env > global env.
+// Always resolved as a pair, never mixed.
 function envSuffix(profile: string): string {
   return profile.toUpperCase().replace(/-/g, "_");
 }
 
-/** True if the profile has dashboard-entered credentials stored in Redis. */
 export async function hasStoredCredentials(profile: string): Promise<boolean> {
   const keys = keysFor(profile);
   const enc = await storage.get<string>(keys.clientSecretEnc);
@@ -165,7 +153,6 @@ export interface SpotifyTokenError {
   error_description?: string;
 }
 
-/** Read a response body as text and attempt to parse it as JSON, returning null on failure. */
 async function parseJsonSafe(res: Response): Promise<unknown | null> {
   const text = await res.text();
   try {
@@ -175,7 +162,6 @@ async function parseJsonSafe(res: Response): Promise<unknown | null> {
   }
 }
 
-/** Exchange an authorization code for tokens during the initial OAuth callback. */
 export async function exchangeCodeForTokens(
   code: string,
   profile: string
@@ -214,7 +200,6 @@ export type RefreshResult =
   | { ok: false; invalidGrant: true }
   | { ok: false; invalidGrant: false; error: string };
 
-/** Refresh an access token using a stored refresh token. */
 export async function refreshAccessToken(
   refreshToken: string,
   profile: string
@@ -275,7 +260,7 @@ export interface SpotifyAccount {
   display_name: string | null;
 }
 
-/** Fetch the authorizing user's basic account info. Best-effort: returns null on any failure. */
+/** Best-effort: null on any failure. */
 export async function fetchSpotifyProfile(accessToken: string): Promise<SpotifyAccount | null> {
   try {
     const res = await fetch("https://api.spotify.com/v1/me", {

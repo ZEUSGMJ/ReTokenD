@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE_NAME, isValidSessionCookie } from "@/lib/session";
 
-// Next.js 16 renamed the "middleware" convention to "proxy". This runs on the
-// Edge runtime, so it uses Web Crypto (via lib/session) — not node:crypto.
-//
-// Routes that require the signed admin session cookie.
-// Excluded by config.matcher below: /api/token (bearer-gated) and
-// /api/check (cron-secret-gated) — those have their own auth.
+// Next 16 middleware ("proxy"). Edge runtime — Web Crypto only.
+// /api/token and /api/check are excluded by the matcher; they have their own bearer auth.
 const PROTECTED_PREFIXES = ["/api/login", "/api/callback"];
 
 export async function proxy(request: NextRequest) {

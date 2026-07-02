@@ -25,8 +25,7 @@ export function Countdown({ expiresAtIso }: { expiresAtIso: string }) {
   const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
-    // First tick is scheduled asynchronously (not a synchronous setState in
-    // the effect body) to avoid cascading renders; subsequent ticks every 1s.
+    // async first tick avoids a cascading render from setState in the effect body
     const immediate = setTimeout(() => setNow(Date.now()), 0);
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => {
@@ -36,7 +35,7 @@ export function Countdown({ expiresAtIso }: { expiresAtIso: string }) {
   }, []);
 
   if (now === null) {
-    // Avoid hydration mismatch: render nothing time-dependent until mounted.
+    // nothing time-dependent before mount (hydration mismatch)
     return <span className="font-mono text-3xl font-semibold tabular-nums">--</span>;
   }
 

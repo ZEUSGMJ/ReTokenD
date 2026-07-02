@@ -1,9 +1,6 @@
-// Symmetric encryption for secrets stored at rest in Redis (currently per-profile
-// Spotify client secrets). AES-256-GCM via node:crypto — Node runtime only, must
-// NOT be imported into proxy.ts / the Edge runtime.
-//
-// The key is derived from an env secret, so a Redis dump alone can't decrypt.
-// Changing CREDENTIALS_SECRET / SESSION_SECRET invalidates existing ciphertexts.
+// AES-256-GCM for secrets at rest in Redis. Node-only (not proxy.ts / Edge).
+// Key derives from CREDENTIALS_SECRET (fallback SESSION_SECRET); rotating it
+// invalidates existing ciphertexts.
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
@@ -14,11 +11,10 @@ function getKey(): Buffer {
   if (!secret) {
     throw new Error("CREDENTIALS_SECRET or SESSION_SECRET must be set to encrypt credentials");
   }
-  // sha256 of the (high-entropy) env secret → a stable 32-byte AES-256 key.
   return createHash("sha256").update(secret).digest();
 }
 
-/** Encrypt a UTF-8 string. Output: `v1:<b64 iv>:<b64 tag>:<b64 ciphertext>`. */
+/** Output: `v1:<b64 iv>:<b64 tag>:<b64 ciphertext>` */
 export function encryptSecret(plaintext: string): string {
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", getKey(), iv);
@@ -32,7 +28,7 @@ export function encryptSecret(plaintext: string): string {
   ].join(":");
 }
 
-/** Decrypt a value produced by encryptSecret(). Throws on tamper / wrong key / bad format. */
+/** Throws on tamper / wrong key / bad format. */
 export function decryptSecret(payload: string): string {
   const parts = payload.split(":");
   if (parts.length !== 4 || parts[0] !== FORMAT_VERSION) {
