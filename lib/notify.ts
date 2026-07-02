@@ -1,9 +1,6 @@
-// Notification channel: Discord webhook (POST {content} + optional embeds).
-// Kept behind this single notify() function so the channel can be swapped
-// later (bot/email/ntfy/etc.) without touching callers. Fails soft: logs but
-// never throws, so a notification failure can't crash the cron route.
+// Discord webhook notifications. Fails soft — logs, never throws.
 
-export const BROKER_EMBED_TITLE = "ReTokenD – Spotify Token Broker";
+export const RETOKEND_EMBED_TITLE = "ReTokenD";
 export const SPOTIFY_GREEN = 0x1db954;
 
 export interface DiscordEmbed {
@@ -15,11 +12,6 @@ export interface DiscordEmbed {
   timestamp?: string;
 }
 
-/**
- * Build the standard broker status embed shared by the dashboard "Test
- * Notification" action and the cron expiry alerts. Takes primitives only so
- * lib/ stays independent of app-layer types.
- */
 export function buildStatusEmbed({
   description,
   statusLabel,
@@ -40,7 +32,7 @@ export function buildStatusEmbed({
     : null;
 
   return {
-    title: profile ? `${BROKER_EMBED_TITLE} — ${profile}` : BROKER_EMBED_TITLE,
+    title: profile ? `${RETOKEND_EMBED_TITLE} — ${profile}` : RETOKEND_EMBED_TITLE,
     description,
     color: SPOTIFY_GREEN,
     fields: [

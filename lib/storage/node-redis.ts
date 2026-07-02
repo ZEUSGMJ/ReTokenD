@@ -1,19 +1,17 @@
 import { createClient, type RedisClientType } from "redis";
 import { decode, encode, type StorageAdapter } from "@/lib/storage/types";
 
-// Official node-redis adapter (self-host / Docker / VPS). Holds a single
-// persistent connection. The connection is established lazily and cached on
-// globalThis so Next dev hot-reload doesn't spawn a new client per reload.
-// Only ever selected on long-lived servers, never on serverless.
+// node-redis adapter (self-host). One lazy connection, cached on globalThis
+// to survive dev hot-reload. Never selected on serverless.
 
 const globalForRedis = globalThis as unknown as {
-  __brokerRedisClient?: RedisClientType;
-  __brokerRedisConnect?: Promise<RedisClientType>;
+  __retokendRedisClient?: RedisClientType;
+  __retokendRedisConnect?: Promise<RedisClientType>;
 };
 
 function getClient(url: string): Promise<RedisClientType> {
-  if (globalForRedis.__brokerRedisConnect) {
-    return globalForRedis.__brokerRedisConnect;
+  if (globalForRedis.__retokendRedisConnect) {
+    return globalForRedis.__retokendRedisConnect;
   }
 
   const client: RedisClientType = createClient({
@@ -21,10 +19,10 @@ function getClient(url: string): Promise<RedisClientType> {
     socket: { reconnectStrategy: (retries) => Math.min(retries * 100, 3000) },
   });
   client.on("error", (err) => console.error("node-redis client error", err));
-  globalForRedis.__brokerRedisClient = client;
+  globalForRedis.__retokendRedisClient = client;
 
-  globalForRedis.__brokerRedisConnect = client.connect().then(() => client);
-  return globalForRedis.__brokerRedisConnect;
+  globalForRedis.__retokendRedisConnect = client.connect().then(() => client);
+  return globalForRedis.__retokendRedisConnect;
 }
 
 export function createNodeRedisAdapter(url: string): StorageAdapter {

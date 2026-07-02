@@ -1,15 +1,10 @@
-// Edge-safe signed cookie helpers using Web Crypto (crypto.subtle).
-// Must NOT depend on Node-only APIs (e.g. `jsonwebtoken`, `node:crypto`)
-// because middleware.ts runs on the Edge runtime.
+// Signed cookies via Web Crypto. Runs in proxy.ts (Edge) — no Node-only imports.
 
 import { DEFAULT_PROFILE } from "@/lib/keys";
 
 const encoder = new TextEncoder();
 
-// Encode a UTF-8 string into an ArrayBuffer-backed Uint8Array. The explicit
-// ArrayBuffer backing is required so the result satisfies BufferSource
-// (ArrayBuffer) for crypto.subtle under strict TS lib settings — TextEncoder
-// returns Uint8Array<ArrayBufferLike>, which TS rejects there.
+// ArrayBuffer-backed copy so strict TS accepts it as BufferSource for crypto.subtle
 function utf8Bytes(value: string): Uint8Array<ArrayBuffer> {
   const encoded = encoder.encode(value);
   const copy = new Uint8Array(new ArrayBuffer(encoded.byteLength));
@@ -42,10 +37,7 @@ async function getHmacKey(secret: string): Promise<CryptoKey> {
   );
 }
 
-/**
- * Sign an arbitrary string payload with HMAC-SHA256.
- * Cookie format: base64url(payload).base64url(HMAC(payload, secret))
- */
+/** Format: base64url(payload).base64url(HMAC-SHA256(payload, secret)) */
 export async function signValue(payload: string, secret: string): Promise<string> {
   const key = await getHmacKey(secret);
   const payloadBytes = utf8Bytes(payload);
@@ -55,10 +47,7 @@ export async function signValue(payload: string, secret: string): Promise<string
   return `${encodedPayload}.${encodedSig}`;
 }
 
-/**
- * Verify a signed value produced by signValue(). Returns the original
- * payload string if valid, or null if the signature is missing/invalid.
- */
+/** Returns the payload if the signature is valid, else null. */
 export async function verifySignedValue(
   signed: string,
   secret: string
@@ -83,8 +72,8 @@ export async function verifySignedValue(
   return new TextDecoder().decode(payloadBytes);
 }
 
-export const SESSION_COOKIE_NAME = "broker_session";
-export const OAUTH_STATE_COOKIE_NAME = "broker_oauth_state";
+export const SESSION_COOKIE_NAME = "retokend_session";
+export const OAUTH_STATE_COOKIE_NAME = "retokend_oauth_state";
 
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const OAUTH_STATE_MAX_AGE_SECONDS = 60 * 10; // 10 minutes
@@ -119,11 +108,7 @@ export async function createOAuthStateCookieValue(
   return signValue(payload, secret);
 }
 
-/**
- * Verify the OAuth state cookie against the state returned by Spotify. Returns
- * the profile carried in the (signed) cookie on success, or null if the cookie
- * is missing, tampered, expired, or the state doesn't match.
- */
+/** Returns the profile from the signed state cookie, or null if missing/tampered/expired/mismatched. */
 export async function verifyOAuthStateCookie(
   value: string | undefined,
   expectedState: string,

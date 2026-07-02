@@ -14,7 +14,7 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "ReTokenD",
-  description: "Private Spotify token broker",
+  description: "ReTokenD — private Spotify token manager",
   robots: {
     index: false,
     follow: false,
