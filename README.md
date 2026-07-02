@@ -1,6 +1,6 @@
 # ReTokenD
 
-A self-hosted **Spotify OAuth token broker**. It owns your Spotify refresh
+A self-hosted **Spotify OAuth token manager**. It owns your Spotify refresh
 token(s), hands short-lived access tokens to your other projects, shows a live
 countdown to each token's 6-month expiry, and lets you re-authorize with one
 click — so a single re-auth heals every consumer at once instead of pasting a
@@ -15,7 +15,7 @@ Manage one Spotify account or several, each as an independent **profile**.
 
 - **Self-hostable** — Docker + local Redis, or Vercel + Upstash. Storage backend
   is pluggable and auto-selected from env.
-- **Multiple Spotify profiles** — one broker, many independent authorizations
+- **Multiple Spotify profiles** — one ReTokenD instance, many independent authorizations
   (`default`, `portfolio`, `personal`, …), each with its own token, scopes,
   countdown, and optional dedicated Spotify app credentials.
 - **Never leaks refresh tokens** — `/api/token` returns an access token only.
@@ -80,11 +80,11 @@ Copy `.env.example` to `.env` (Docker) or `.env.local` (local dev) and fill in:
 |-----|-------|
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_SECRET_ID` | Default Spotify app credentials (all profiles) |
 | `SPOTIFY_CLIENT_ID_<PROFILE>` / `SPOTIFY_SECRET_ID_<PROFILE>` | Optional per-profile override; suffix = profile id upper-cased, `-`→`_` |
-| `BROKER_SECRET` | Bearer secret consumer projects send to `/api/token` |
+| `RETOKEND_SECRET` | Bearer secret consumer projects send to `/api/token` |
 | `ADMIN_PASSWORD` | Gates the dashboard and OAuth routes |
 | `SESSION_SECRET` | Signs the session + OAuth-state cookies (`openssl rand -hex 32`) |
 | `CREDENTIALS_SECRET` | Optional. Encrypts dashboard-entered client secrets; falls back to `SESSION_SECRET` |
-| `BASE_URL` | Public broker URL, no trailing slash; builds the OAuth redirect URI |
+| `BASE_URL` | Public ReTokenD URL, no trailing slash; builds the OAuth redirect URI |
 | `REDIS_URL` | Local Redis connection string (self-host) — **or** leave blank and use Upstash |
 | `KV_REST_API_URL` / `KV_REST_API_TOKEN` | Upstash (Vercel Marketplace) |
 | `CRON_SECRET` | Bearer token `/api/check` requires |
@@ -98,7 +98,7 @@ In the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard),
 add these **Redirect URIs** (every profile shares the same callback — the
 profile is carried in signed OAuth state, not the URL):
 
-- `https://<your-broker-domain>/api/callback` (production)
+- `https://<your-retokend-domain>/api/callback` (production)
 - `http://127.0.0.1:3000/api/callback` (local dev — use `127.0.0.1`, not `localhost`)
 
 Each profile can use its own Spotify app. Set its credentials either in the
@@ -118,9 +118,9 @@ you re-authorize, save scopes, send a test alert, or disable the profile.
 
 ```bash
 # default profile
-curl -H "Authorization: Bearer $BROKER_SECRET" https://<broker>/api/token
+curl -H "Authorization: Bearer $RETOKEND_SECRET" https://<retokend>/api/token
 # a specific profile
-curl -H "Authorization: Bearer $BROKER_SECRET" "https://<broker>/api/token?profile=portfolio"
+curl -H "Authorization: Bearer $RETOKEND_SECRET" "https://<retokend>/api/token?profile=portfolio"
 ```
 
 Response: `{ "access_token": "...", "expires_at": <epoch ms>, "profile": "..." }`.
@@ -136,14 +136,16 @@ sends Discord alerts on threshold crossings or re-auth. Trigger it daily via:
 - **Vercel Cron** — `vercel.json` (already configured), or
 - **Any external scheduler** — host cron, [cron-job.org](https://cron-job.org),
   Uptime Kuma, a systemd timer, or GitHub Actions — hitting
-  `https://<broker>/api/check` with `Authorization: Bearer $CRON_SECRET`.
+  `https://<retokend>/api/check` with `Authorization: Bearer $CRON_SECRET`.
 
 ## Security notes
 
-- Secrets live only in env / Redis, never in code. Client secrets are never
-  stored in Redis.
+- Secrets live only in env / Redis, never in code. Per-profile client secrets
+  entered in the dashboard are stored in Redis AES-256-GCM encrypted (key from
+  `CREDENTIALS_SECRET`, falling back to `SESSION_SECRET`).
 - `/api/token` is bearer-gated and returns only an access token.
 - Human-facing routes are gated by a signed, httpOnly, secure session cookie.
+- Login is rate limited: 10 failed attempts per 15 minutes per IP.
 - Constant-time comparisons for bearer/session checks.
 - Hidden from search engines via `robots.ts`, `noindex` metadata, and an
   `X-Robots-Tag` header.
