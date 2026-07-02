@@ -7,7 +7,6 @@ import { bearerMatches } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
-// Read the cached access token and compute expires_at from its remaining TTL.
 async function readCachedAccessToken(
   keys: ProfileKeys
 ): Promise<{ access_token: string; expires_at: number } | null> {
@@ -19,10 +18,10 @@ async function readCachedAccessToken(
 }
 
 export async function GET(request: NextRequest) {
-  const brokerSecret = process.env.BROKER_SECRET ?? "";
+  const tokenSecret = process.env.RETOKEND_SECRET ?? "";
   const authHeader = request.headers.get("authorization") ?? "";
 
-  if (!bearerMatches(authHeader, brokerSecret)) {
+  if (!bearerMatches(authHeader, tokenSecret)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -39,7 +38,6 @@ export async function GET(request: NextRequest) {
 
   const keys = keysFor(profile);
 
-  // Serve cached access token if present.
   const cached = await readCachedAccessToken(keys);
   if (cached) {
     return NextResponse.json({ ...cached, profile });
@@ -50,9 +48,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "reauth_required", profile }, { status: 409 });
   }
 
-  // Single-flight: only one request should hit Spotify's refresh endpoint at
-  // a time. Losers poll the access-token cache briefly, then fall through to
-  // a normal refresh as a safety valve if the winner doesn't finish in time.
+  // no refresh retries after invalid_grant until re-auth clears the flag (spec)
+  const reauthRequired = await storage.get<string>(keys.reauthRequired);
+  if (reauthRequired) {
+    return NextResponse.json({ error: "reauth_required", profile }, { status: 409 });
+  }
+
+  // single-flight refresh; losers poll the cache, then refresh anyway as a fallback
   const gotLock = await storage.acquireLock(keys.refreshLock, 10);
 
   if (!gotLock) {
@@ -63,7 +65,6 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ ...cachedWhilePolling, profile });
       }
     }
-    // Timed out waiting for the lock holder — fall through and refresh anyway.
   }
 
   try {
@@ -71,7 +72,6 @@ export async function GET(request: NextRequest) {
 
     if (!result.ok) {
       if (result.invalidGrant) {
-        // Do NOT retry. Flag for re-auth.
         await storage.set(keys.reauthRequired, "1");
         return NextResponse.json({ error: "reauth_required", profile }, { status: 409 });
       }
@@ -86,10 +86,10 @@ export async function GET(request: NextRequest) {
     const ops: Promise<unknown>[] = [
       storage.setWithTTL(keys.accessToken, access_token, ttlSeconds),
       storage.set(keys.lastRefresh, nowIso),
+      storage.del(keys.reauthRequired),
     ];
 
-    // If Spotify rotated the refresh token, store the new one — but NEVER
-    // touch issued_at here; that is only set on full re-auth in /api/callback.
+    // rotated refresh token; issued_at is only ever set in /api/callback
     if (newRefreshToken && newRefreshToken !== refreshToken) {
       ops.push(storage.set(keys.refreshToken, newRefreshToken));
     }

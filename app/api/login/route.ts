@@ -7,6 +7,7 @@ import {
 } from "@/lib/session";
 import { buildAuthorizeUrl, getConfiguredScopes } from "@/lib/spotify";
 import { DEFAULT_PROFILE, isValidProfileId } from "@/lib/keys";
+import { getSessionSecret } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -16,7 +17,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "invalid_profile" }, { status: 400 });
   }
 
-  const sessionSecret = process.env.SESSION_SECRET ?? "";
+  const sessionSecret = getSessionSecret();
   const state = crypto.randomUUID();
 
   const cookieValue = await createOAuthStateCookieValue(state, profile, sessionSecret);

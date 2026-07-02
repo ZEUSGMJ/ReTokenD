@@ -117,9 +117,6 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
           </Button>
           <form action={testNotification}>
             <input type="hidden" name="profile" value={profile} />
-            <input type="hidden" name="status" value={status} />
-            <input type="hidden" name="daysLeft" value={daysLeft ?? ""} />
-            <input type="hidden" name="expiresAtIso" value={expiresAtIso ?? ""} />
             <Button type="submit" variant="outline" size="sm">
               Test Notification
             </Button>

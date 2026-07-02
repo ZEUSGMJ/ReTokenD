@@ -4,31 +4,29 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { storage } from "@/lib/storage";
-import { DEFAULT_PROFILE, isValidProfileId, keysFor } from "@/lib/keys";
+import { DEFAULT_PROFILE, isValidProfileId, keysFor, SIX_MONTHS_MS } from "@/lib/keys";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 import { ALL_SCOPE_IDS } from "@/lib/spotify";
 import {
   deleteProfile as removeProfile,
+  profileExists,
   registerProfile,
   setProfileEnabled,
 } from "@/lib/profiles";
 import { notify, buildStatusEmbed } from "@/lib/notify";
 import { encryptSecret } from "@/lib/crypto";
 
-/** Clear the admin session cookie and return to the login page. */
 export async function logout() {
   const cookieStore = await cookies();
   cookieStore.delete(SESSION_COOKIE_NAME);
   redirect("/login");
 }
 
-/**
- * Persist a profile's scope selection. Only ids that exist in the catalog are
- * stored (whitelist). Applied on the next re-authorization, not retroactively.
- */
+/** Whitelisted against the catalog; applied on the next re-auth. */
 export async function saveScopes(formData: FormData) {
   const profile = String(formData.get("profile") ?? DEFAULT_PROFILE);
   if (!isValidProfileId(profile)) return;
+  if (!(await profileExists(profile))) return;
 
   const selected = formData
     .getAll("scopes")
@@ -39,20 +37,37 @@ export async function saveScopes(formData: FormData) {
   revalidatePath("/");
 }
 
-/** Send a test Discord notification with a profile's current token state. */
 export async function testNotification(formData: FormData) {
   const profile = String(formData.get("profile") ?? DEFAULT_PROFILE);
-  const status = String(formData.get("status") ?? "");
-  const daysLeftStr = String(formData.get("daysLeft") ?? "");
-  const expiresAtIso = String(formData.get("expiresAtIso") ?? "");
+  if (!isValidProfileId(profile)) return;
 
-  const daysLeft = daysLeftStr ? parseInt(daysLeftStr, 10) : null;
+  const keys = keysFor(profile);
+  const [issuedAt, reauthRequired] = await Promise.all([
+    storage.get<string>(keys.refreshTokenIssuedAt),
+    storage.get<string>(keys.reauthRequired),
+  ]);
+
+  const expiresAtIso = issuedAt
+    ? new Date(new Date(issuedAt).getTime() + SIX_MONTHS_MS).toISOString()
+    : null;
+  const daysLeft = expiresAtIso
+    ? Math.floor((new Date(expiresAtIso).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    : null;
+
+  let statusLabel: string;
+  if (!reauthRequired && daysLeft !== null && daysLeft > 14) {
+    statusLabel = "Valid";
+  } else if (!reauthRequired && daysLeft !== null && daysLeft > 0) {
+    statusLabel = "Expiring Soon";
+  } else {
+    statusLabel = "Expired / Re-auth Required";
+  }
 
   const embed = buildStatusEmbed({
     description: "Test Notification",
-    statusLabel: status === "valid" ? "Valid" : "Expiring Soon / Re-auth Required",
+    statusLabel,
     daysLeft,
-    expiresAtIso: expiresAtIso && expiresAtIso.length > 0 ? expiresAtIso : null,
+    expiresAtIso,
     footer: "Test from Dashboard",
     profile,
   });
@@ -60,10 +75,10 @@ export async function testNotification(formData: FormData) {
   await notify(`Test notification from ReTokenD [${profile}]`, [embed]);
 }
 
-/** Enable or disable a profile (disabled profiles are skipped by cron + /api/token). */
 export async function toggleProfileEnabled(formData: FormData) {
   const profile = String(formData.get("profile") ?? "");
   if (!isValidProfileId(profile)) return;
+  if (!(await profileExists(profile))) return;
   const enabled = String(formData.get("enabled") ?? "") === "1";
   await setProfileEnabled(profile, enabled);
   revalidatePath("/");
@@ -73,10 +88,6 @@ export interface CreateProfileState {
   error?: string;
 }
 
-/**
- * Create a new (empty) profile. It must still be authorized via Re-authorize.
- * Shaped for useActionState so validation errors render inline, not via the URL.
- */
 export async function createProfile(
   _prev: CreateProfileState,
   formData: FormData
@@ -97,17 +108,14 @@ export interface CredentialsState {
   ok?: boolean;
 }
 
-/**
- * Save a profile's own Spotify app credentials. client_id is stored plaintext
- * (it's not confidential); client_secret is encrypted at rest. A blank secret
- * leaves the existing stored secret untouched, so the id can be edited alone.
- */
+/** A blank secret keeps the stored one, so the client id can be edited alone. */
 export async function saveProfileCredentials(
   _prev: CredentialsState,
   formData: FormData
 ): Promise<CredentialsState> {
   const profile = String(formData.get("profile") ?? "");
   if (!isValidProfileId(profile)) return { error: "invalid_profile" };
+  if (!(await profileExists(profile))) return { error: "invalid_profile" };
 
   const clientId = String(formData.get("clientId") ?? "").trim();
   const clientSecret = String(formData.get("clientSecret") ?? "").trim();
@@ -127,7 +135,6 @@ export async function saveProfileCredentials(
   return { ok: true };
 }
 
-/** Delete a profile entirely (purges its token + settings). `default` is protected. */
 export async function deleteProfile(formData: FormData) {
   const profile = String(formData.get("profile") ?? "");
   if (!isValidProfileId(profile) || profile === DEFAULT_PROFILE) return;
@@ -135,10 +142,11 @@ export async function deleteProfile(formData: FormData) {
   revalidatePath("/");
 }
 
-/** Remove a profile's stored credentials so it falls back to the env/global Spotify app. */
+/** Falls back to the env/global Spotify app. */
 export async function clearProfileCredentials(formData: FormData) {
   const profile = String(formData.get("profile") ?? "");
   if (!isValidProfileId(profile)) return;
+  if (!(await profileExists(profile))) return;
   const keys = keysFor(profile);
   await storage.del(keys.clientId, keys.clientSecretEnc);
   revalidatePath("/");

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -7,23 +7,51 @@ import {
   SESSION_MAX_AGE_SECONDS,
   createSessionCookieValue,
 } from "@/lib/session";
-import { constantTimeEquals } from "@/lib/auth";
+import { constantTimeEquals, getSessionSecret } from "@/lib/auth";
+import { storage } from "@/lib/storage";
 
 const LOGIN_ERROR_PARAM = "error";
+
+// lockout applies even to correct passwords until the window expires
+const LOGIN_MAX_FAILURES = 10;
+const LOGIN_WINDOW_SECONDS = 15 * 60;
+
+async function clientIp(): Promise<string> {
+  const h = await headers();
+  const forwarded = h.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0].trim();
+  return h.get("x-real-ip") ?? "unknown";
+}
 
 async function login(formData: FormData) {
   "use server";
 
   const password = String(formData.get("password") ?? "");
   const adminPassword = process.env.ADMIN_PASSWORD ?? "";
-  const sessionSecret = process.env.SESSION_SECRET ?? "";
+  const sessionSecret = getSessionSecret();
+
+  const failKey = `login:fail:${await clientIp()}`;
+  const failCount = (await storage.get<number>(failKey)) ?? 0;
+
+  if (failCount >= LOGIN_MAX_FAILURES) {
+    redirect(`/login?${LOGIN_ERROR_PARAM}=1`);
+  }
 
   const valid =
     adminPassword.length > 0 && constantTimeEquals(password, adminPassword);
 
   if (!valid) {
+    // non-atomic increment is fine here; keep the remaining TTL so the window doesn't reset
+    const ttl = await storage.ttl(failKey);
+    if (ttl > 0) {
+      await storage.setWithTTL(failKey, failCount + 1, ttl);
+    } else {
+      await storage.setWithTTL(failKey, failCount + 1, LOGIN_WINDOW_SECONDS);
+    }
     redirect(`/login?${LOGIN_ERROR_PARAM}=1`);
   }
+
+  await storage.del(failKey);
 
   const cookieValue = await createSessionCookieValue(sessionSecret);
   const cookieStore = await cookies();

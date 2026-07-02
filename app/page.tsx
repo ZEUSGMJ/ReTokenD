@@ -1,7 +1,7 @@
 import { storage } from "@/lib/storage";
 import { SIX_MONTHS_MS, keysFor } from "@/lib/keys";
 import { getProfileMeta, isProfileEnabled, listProfiles } from "@/lib/profiles";
-import { getConfiguredScopes } from "@/lib/spotify";
+import { getConfiguredScopes, hasStoredCredentials } from "@/lib/spotify";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ProfileCard, type ProfileCardData } from "@/app/components/ProfileCard";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 async function loadProfile(profile: string, nowMs: number): Promise<ProfileCardData> {
   const keys = keysFor(profile);
-  const [issuedAt, lastRefresh, reauthRequired, enabled, meta, configuredScopes, clientId, clientSecretEnc] =
+  const [issuedAt, lastRefresh, reauthRequired, enabled, meta, configuredScopes, clientId, hasCustomApp] =
     await Promise.all([
       storage.get<string>(keys.refreshTokenIssuedAt),
       storage.get<string>(keys.lastRefresh),
@@ -22,7 +22,7 @@ async function loadProfile(profile: string, nowMs: number): Promise<ProfileCardD
       getProfileMeta(profile),
       getConfiguredScopes(profile),
       storage.get<string>(keys.clientId),
-      storage.get<string>(keys.clientSecretEnc),
+      hasStoredCredentials(profile),
     ]);
 
   const expiresAtIso = issuedAt
@@ -51,7 +51,7 @@ async function loadProfile(profile: string, nowMs: number): Promise<ProfileCardD
     displayName: meta.displayName,
     accountId: meta.accountId,
     configuredScopes,
-    hasCustomApp: Boolean(clientSecretEnc),
+    hasCustomApp,
     clientId,
   };
 }
@@ -59,8 +59,7 @@ async function loadProfile(profile: string, nowMs: number): Promise<ProfileCardD
 export default async function Dashboard() {
   const profiles = await listProfiles();
 
-  // This is an async, force-dynamic server component that runs once per
-  // request, so reading the current time here is intentional and safe.
+  // force-dynamic: renders once per request
   // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();
   const cards = await Promise.all(profiles.map((p) => loadProfile(p, nowMs)));

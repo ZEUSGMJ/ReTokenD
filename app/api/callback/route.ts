@@ -5,6 +5,7 @@ import { NOTIFY_THRESHOLDS_DAYS, keysFor } from "@/lib/keys";
 import { OAUTH_STATE_COOKIE_NAME, verifyOAuthStateCookie } from "@/lib/session";
 import { exchangeCodeForTokens, fetchSpotifyProfile } from "@/lib/spotify";
 import { registerProfile } from "@/lib/profiles";
+import { getSessionSecret } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
     return errorPage("Missing code or state parameter.");
   }
 
-  const sessionSecret = process.env.SESSION_SECRET ?? "";
+  const sessionSecret = getSessionSecret();
   const cookieStore = await cookies();
   const stateCookie = cookieStore.get(OAUTH_STATE_COOKIE_NAME)?.value;
 
@@ -56,6 +57,12 @@ export async function GET(request: NextRequest) {
   try {
     const tokens = await exchangeCodeForTokens(code, profile);
 
+    // never reset issued_at without a refresh token to store
+    if (typeof tokens.refresh_token !== "string" || tokens.refresh_token.length === 0) {
+      console.error("OAuth callback: Spotify returned no refresh_token", { profile });
+      return errorPage("Spotify did not return a refresh token. Please try re-authorizing again.");
+    }
+
     const keys = keysFor(profile);
     const nowIso = new Date().toISOString();
     const notifiedKeys = NOTIFY_THRESHOLDS_DAYS.map((d) => keys.notified(d));
@@ -65,10 +72,10 @@ export async function GET(request: NextRequest) {
       storage.set(keys.refreshTokenIssuedAt, nowIso),
       storage.del(keys.accessToken),
       storage.del(keys.reauthRequired),
+      storage.del(keys.notifiedReauth),
       ...(notifiedKeys.length > 0 ? [storage.del(...notifiedKeys)] : []),
     ]);
 
-    // Best-effort account metadata for the dashboard, using the fresh token.
     const account = await fetchSpotifyProfile(tokens.access_token);
     if (account) {
       const ops: Promise<unknown>[] = [storage.set(keys.accountId, account.id)];

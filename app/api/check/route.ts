@@ -7,8 +7,6 @@ import { listEnabledProfiles } from "@/lib/profiles";
 
 export const runtime = "nodejs";
 
-// Run the expiry / re-auth checks for a single profile. Returns the labels of
-// any alerts fired this run.
 async function checkProfile(profile: string): Promise<string[]> {
   const keys = keysFor(profile);
   const fired: string[] = [];
@@ -28,27 +26,31 @@ async function checkProfile(profile: string): Promise<string[]> {
     : null;
 
   if (reauthRequired) {
-    await notify(
-      `ReTokenD [${profile}]: re-authorization is required. The refresh token was rejected by Spotify. Visit the dashboard and click Re-authorize.`,
-      [
-        buildStatusEmbed({
-          description:
-            "Re-authorization required — Spotify rejected the refresh token. Re-authorize at the dashboard.",
-          statusLabel: "Re-auth required",
-          daysLeft,
-          expiresAtIso,
-          profile,
-        }),
-      ]
-    );
-    fired.push("reauth_required");
+    // once per incident; cleared on re-auth
+    const alreadyNotifiedReauth = await storage.get<string>(keys.notifiedReauth);
+    if (!alreadyNotifiedReauth) {
+      await notify(
+        `ReTokenD [${profile}]: re-authorization is required. The refresh token was rejected by Spotify. Visit the dashboard and click Re-authorize.`,
+        [
+          buildStatusEmbed({
+            description:
+              "Re-authorization required — Spotify rejected the refresh token. Re-authorize at the dashboard.",
+            statusLabel: "Re-auth required",
+            daysLeft,
+            expiresAtIso,
+            profile,
+          }),
+        ]
+      );
+      await storage.set(keys.notifiedReauth, "1");
+      fired.push("reauth_required");
+    }
   }
 
   if (issuedAt && daysLeft !== null) {
     const displayDaysLeft = Math.max(daysLeft, 0);
 
-    // Fire only the single most-urgent (smallest) not-yet-notified threshold
-    // per run, then stop — avoids notifying every threshold at once.
+    // fire only the smallest not-yet-notified threshold per run
     const sortedThresholds = [...NOTIFY_THRESHOLDS_DAYS].sort((a, b) => a - b);
 
     for (const threshold of sortedThresholds) {
