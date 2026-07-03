@@ -71,7 +71,6 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
       </CardHeader>
 
       <CardContent className="flex flex-col gap-6">
-        {/* Countdown */}
         <div className="flex flex-col items-center gap-2 py-2">
           {expiresAtIso ? (
             <Countdown expiresAtIso={expiresAtIso} />
@@ -90,7 +89,6 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
           )}
         </div>
 
-        {/* Details */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <div className="text-xs uppercase text-muted-foreground">Issued at</div>
@@ -110,7 +108,6 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
           </div>
         </div>
 
-        {/* Actions */}
         <div className="flex flex-wrap gap-2">
           <Button render={<a href={`/api/login?profile=${profile}`} />} nativeButton={false} size="sm">
             Re-authorize
@@ -131,7 +128,6 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
           {profile !== DEFAULT_PROFILE && <DeleteProfileButton profile={profile} />}
         </div>
 
-        {/* Spotify app credentials */}
         <details className="rounded-md border border-border">
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
             Spotify app {hasCustomApp ? "(custom)" : "(shared)"}
@@ -145,7 +141,6 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
           </div>
         </details>
 
-        {/* Scopes */}
         <details className="rounded-md border border-border">
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Scopes</summary>
           <div className="border-t border-border p-3">
