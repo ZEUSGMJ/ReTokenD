@@ -5,7 +5,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Force the local Redis service regardless of what .env carries.
+      # overrides any REDIS_URL in .env
       REDIS_URL: redis://redis:6379
     env_file:
       - path: .env
@@ -17,7 +17,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    # appendonly persistence so tokens survive restarts / rebuilds.
+    # tokens must survive restarts
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
@@ -28,5 +28,4 @@ services:
       retries: 5
 
 volumes:
-  # Named volume: token data persists until you explicitly `docker compose down -v`.
   redis_data:
