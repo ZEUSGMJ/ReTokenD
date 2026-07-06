@@ -8,10 +8,16 @@ import {
 import { buildAuthorizeUrl, getConfiguredScopes } from "@/lib/spotify";
 import { DEFAULT_PROFILE, isValidProfileId } from "@/lib/keys";
 import { getSessionSecret } from "@/lib/auth";
+import { isSessionCurrent } from "@/lib/session-server";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
+  // proxy checks signature + age; the generation check (server-side revocation) runs here
+  if (!(await isSessionCurrent())) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+
   const profile = request.nextUrl.searchParams.get("profile") ?? DEFAULT_PROFILE;
   if (!isValidProfileId(profile)) {
     return NextResponse.json({ error: "invalid_profile" }, { status: 400 });

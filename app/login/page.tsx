@@ -8,13 +8,18 @@ import {
   createSessionCookieValue,
 } from "@/lib/session";
 import { constantTimeEquals, getSessionSecret } from "@/lib/auth";
+import { getSessionGeneration } from "@/lib/session-server";
 import { storage } from "@/lib/storage";
+import { Input } from "@/components/ui/input";
 
 const LOGIN_ERROR_PARAM = "error";
 
 // lockout applies even to correct passwords until the window expires
 const LOGIN_MAX_FAILURES = 10;
 const LOGIN_WINDOW_SECONDS = 15 * 60;
+// global fallback so a spoofed X-Forwarded-For can't yield unlimited guesses
+const LOGIN_GLOBAL_KEY = "login:fail:global";
+const LOGIN_GLOBAL_MAX_FAILURES = 50;
 
 async function clientIp(): Promise<string> {
   const h = await headers();
@@ -31,9 +36,12 @@ async function login(formData: FormData) {
   const sessionSecret = getSessionSecret();
 
   const failKey = `login:fail:${await clientIp()}`;
-  const failCount = (await storage.get<number>(failKey)) ?? 0;
+  const [perIp, global] = await Promise.all([
+    storage.get<number>(failKey),
+    storage.get<number>(LOGIN_GLOBAL_KEY),
+  ]);
 
-  if (failCount >= LOGIN_MAX_FAILURES) {
+  if ((perIp ?? 0) >= LOGIN_MAX_FAILURES || (global ?? 0) >= LOGIN_GLOBAL_MAX_FAILURES) {
     redirect(`/login?${LOGIN_ERROR_PARAM}=1`);
   }
 
@@ -41,19 +49,18 @@ async function login(formData: FormData) {
     adminPassword.length > 0 && constantTimeEquals(password, adminPassword);
 
   if (!valid) {
-    // non-atomic increment is fine here; keep the remaining TTL so the window doesn't reset
-    const ttl = await storage.ttl(failKey);
-    if (ttl > 0) {
-      await storage.setWithTTL(failKey, failCount + 1, ttl);
-    } else {
-      await storage.setWithTTL(failKey, failCount + 1, LOGIN_WINDOW_SECONDS);
-    }
+    // atomic INCR preserves the window (expiry set only when the key is new)
+    await Promise.all([
+      storage.incr(failKey, LOGIN_WINDOW_SECONDS),
+      storage.incr(LOGIN_GLOBAL_KEY, LOGIN_WINDOW_SECONDS),
+    ]);
     redirect(`/login?${LOGIN_ERROR_PARAM}=1`);
   }
 
   await storage.del(failKey);
 
-  const cookieValue = await createSessionCookieValue(sessionSecret);
+  const generation = await getSessionGeneration();
+  const cookieValue = await createSessionCookieValue(sessionSecret, generation);
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE_NAME, cookieValue, {
     httpOnly: true,
@@ -81,13 +88,12 @@ export default async function LoginPage({
         </CardHeader>
         <CardContent>
           <form action={login} className="flex flex-col gap-3">
-            <input
+            <Input
               type="password"
               name="password"
               placeholder="Admin password"
               autoFocus
               required
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
             {error && (
               <p className="text-sm text-destructive">Incorrect password.</p>

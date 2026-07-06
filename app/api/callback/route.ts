@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { storage } from "@/lib/storage";
-import { NOTIFY_THRESHOLDS_DAYS, keysFor } from "@/lib/keys";
+import { keysFor } from "@/lib/keys";
 import { OAUTH_STATE_COOKIE_NAME, verifyOAuthStateCookie } from "@/lib/session";
 import { exchangeCodeForTokens, fetchSpotifyProfile } from "@/lib/spotify";
-import { registerProfile } from "@/lib/profiles";
+import { registerProfile, clearNotificationFlags } from "@/lib/profiles";
 import { getSessionSecret } from "@/lib/auth";
+import { isSessionCurrent } from "@/lib/session-server";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,11 @@ function errorPage(message: string) {
 }
 
 export async function GET(request: NextRequest) {
+  // proxy checks signature + age; the generation check (server-side revocation) runs here
+  if (!(await isSessionCurrent())) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+
   const { searchParams } = request.nextUrl;
   const code = searchParams.get("code");
   const state = searchParams.get("state");
@@ -65,15 +71,13 @@ export async function GET(request: NextRequest) {
 
     const keys = keysFor(profile);
     const nowIso = new Date().toISOString();
-    const notifiedKeys = NOTIFY_THRESHOLDS_DAYS.map((d) => keys.notified(d));
 
     await Promise.all([
       storage.set(keys.refreshToken, tokens.refresh_token),
       storage.set(keys.refreshTokenIssuedAt, nowIso),
       storage.del(keys.accessToken),
       storage.del(keys.reauthRequired),
-      storage.del(keys.notifiedReauth),
-      ...(notifiedKeys.length > 0 ? [storage.del(...notifiedKeys)] : []),
+      clearNotificationFlags(profile),
     ]);
 
     const account = await fetchSpotifyProfile(tokens.access_token);

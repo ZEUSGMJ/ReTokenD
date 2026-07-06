@@ -4,8 +4,10 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { storage } from "@/lib/storage";
-import { DEFAULT_PROFILE, isValidProfileId, keysFor, SIX_MONTHS_MS } from "@/lib/keys";
+import { DEFAULT_PROFILE, isValidProfileId, keysFor } from "@/lib/keys";
+import { tokenLifecycle, type TokenStatus } from "@/lib/lifecycle";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
+import { bumpSessionGeneration } from "@/lib/session-server";
 import { ALL_SCOPE_IDS } from "@/lib/spotify";
 import {
   deleteProfile as removeProfile,
@@ -17,6 +19,8 @@ import { notify, buildStatusEmbed } from "@/lib/notify";
 import { encryptSecret } from "@/lib/crypto";
 
 export async function logout() {
+  // bump the generation first so every outstanding cookie is revoked server-side
+  await bumpSessionGeneration();
   const cookieStore = await cookies();
   cookieStore.delete(SESSION_COOKIE_NAME);
   redirect("/login");
@@ -47,21 +51,18 @@ export async function testNotification(formData: FormData) {
     storage.get<string>(keys.reauthRequired),
   ]);
 
-  const expiresAtIso = issuedAt
-    ? new Date(new Date(issuedAt).getTime() + SIX_MONTHS_MS).toISOString()
-    : null;
-  const daysLeft = expiresAtIso
-    ? Math.floor((new Date(expiresAtIso).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-    : null;
+  const { expiresAtIso, daysLeft, status } = tokenLifecycle(
+    issuedAt,
+    Date.now(),
+    Boolean(reauthRequired)
+  );
 
-  let statusLabel: string;
-  if (!reauthRequired && daysLeft !== null && daysLeft > 14) {
-    statusLabel = "Valid";
-  } else if (!reauthRequired && daysLeft !== null && daysLeft > 0) {
-    statusLabel = "Expiring Soon";
-  } else {
-    statusLabel = "Expired / Re-auth Required";
-  }
+  const STATUS_LABELS: Record<TokenStatus, string> = {
+    valid: "Valid",
+    "expiring-soon": "Expiring Soon",
+    "expired-or-reauth-required": "Expired / Re-auth Required",
+  };
+  const statusLabel = STATUS_LABELS[status];
 
   const embed = buildStatusEmbed({
     description: "Test Notification",

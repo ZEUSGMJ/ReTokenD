@@ -27,14 +27,21 @@ function base64UrlDecode(value: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-async function getHmacKey(secret: string): Promise<CryptoKey> {
-  return crypto.subtle.importKey(
+// cache the imported CryptoKey per secret — importKey is async and re-run on every verify otherwise
+const hmacKeyCache = new Map<string, Promise<CryptoKey>>();
+
+function getHmacKey(secret: string): Promise<CryptoKey> {
+  const cached = hmacKeyCache.get(secret);
+  if (cached) return cached;
+  const keyPromise = crypto.subtle.importKey(
     "raw",
     utf8Bytes(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign", "verify"]
   );
+  hmacKeyCache.set(secret, keyPromise);
+  return keyPromise;
 }
 
 /** Format: base64url(payload).base64url(HMAC-SHA256(payload, secret)) */
@@ -78,24 +85,45 @@ export const OAUTH_STATE_COOKIE_NAME = "retokend_oauth_state";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const OAUTH_STATE_MAX_AGE_SECONDS = 60 * 10; // 10 minutes
 
-export async function createSessionCookieValue(secret: string): Promise<string> {
-  const payload = JSON.stringify({ iat: Date.now() });
+export interface SessionPayload {
+  iat: number;
+  gen: string; // server-side revocation generation (checked Node-side, not in the Edge proxy)
+}
+
+export async function createSessionCookieValue(
+  secret: string,
+  generation: string
+): Promise<string> {
+  const payload = JSON.stringify({ iat: Date.now(), gen: generation });
   return signValue(payload, secret);
 }
 
+/** Signature + age only (Edge-safe). The generation check runs Node-side (see lib/session-server.ts). */
 export async function isValidSessionCookie(
   value: string | undefined,
   secret: string
 ): Promise<boolean> {
-  if (!value) return false;
+  return (await readSessionPayload(value, secret)) !== null;
+}
+
+/** Verifies signature + age and returns the payload, or null. */
+export async function readSessionPayload(
+  value: string | undefined,
+  secret: string
+): Promise<SessionPayload | null> {
+  if (!value) return null;
   const payload = await verifySignedValue(value, secret);
-  if (!payload) return false;
+  if (!payload) return null;
   try {
-    const parsed = JSON.parse(payload) as { iat: number };
-    const ageSeconds = (Date.now() - parsed.iat) / 1000;
-    return ageSeconds >= 0 && ageSeconds <= SESSION_MAX_AGE_SECONDS;
+    const parsed = JSON.parse(payload) as { iat?: unknown; gen?: unknown };
+    if (!Number.isFinite(parsed.iat)) return null;
+    const iat = parsed.iat as number;
+    const ageSeconds = (Date.now() - iat) / 1000;
+    if (ageSeconds < 0 || ageSeconds > SESSION_MAX_AGE_SECONDS) return null;
+    const gen = typeof parsed.gen === "string" ? parsed.gen : "";
+    return { iat, gen };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -119,6 +147,7 @@ export async function verifyOAuthStateCookie(
   if (!payload) return null;
   try {
     const parsed = JSON.parse(payload) as { state: string; profile?: string; iat: number };
+    if (!Number.isFinite(parsed.iat)) return null;
     const ageSeconds = (Date.now() - parsed.iat) / 1000;
     if (ageSeconds < 0 || ageSeconds > OAUTH_STATE_MAX_AGE_SECONDS) return null;
     if (parsed.state !== expectedState) return null;
