@@ -20,11 +20,10 @@ export function createUpstashAdapter(url: string, token: string): StorageAdapter
     async del(...keys: string[]): Promise<void> {
       if (keys.length > 0) await redis.del(...keys);
     },
-    async exists(key: string): Promise<boolean> {
-      return (await redis.exists(key)) > 0;
-    },
-    async ttl(key: string): Promise<number> {
-      return redis.ttl(key);
+    async incr(key: string, windowSeconds: number): Promise<number> {
+      const count = await redis.incr(key);
+      if (count === 1) await redis.expire(key, windowSeconds, "NX");
+      return count;
     },
     async acquireLock(key: string, ttlSeconds: number): Promise<boolean> {
       const res = await redis.set(key, encode("1"), { nx: true, ex: ttlSeconds });

@@ -31,8 +31,7 @@ export const storage: StorageAdapter = {
   set: (key, value) => getAdapter().set(key, value),
   setWithTTL: (key, value, ttlSeconds) => getAdapter().setWithTTL(key, value, ttlSeconds),
   del: (...keys) => getAdapter().del(...keys),
-  exists: (key) => getAdapter().exists(key),
-  ttl: (key) => getAdapter().ttl(key),
+  incr: (key, windowSeconds) => getAdapter().incr(key, windowSeconds),
   acquireLock: (key, ttlSeconds) => getAdapter().acquireLock(key, ttlSeconds),
 };
 

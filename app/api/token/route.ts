@@ -2,19 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 import { storage } from "@/lib/storage";
 import { DEFAULT_PROFILE, isValidProfileId, keysFor, type ProfileKeys } from "@/lib/keys";
 import { refreshAccessToken } from "@/lib/spotify";
-import { isProfileEnabled, profileExists } from "@/lib/profiles";
+import { isProfileEnabled, listProfiles } from "@/lib/profiles";
 import { bearerMatches } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
-async function readCachedAccessToken(
-  keys: ProfileKeys
-): Promise<{ access_token: string; expires_at: number } | null> {
-  const cachedAccessToken = await storage.get<string>(keys.accessToken);
-  if (!cachedAccessToken) return null;
-  const ttl = await storage.ttl(keys.accessToken);
-  const expiresAt = Date.now() + Math.max(ttl, 0) * 1000;
-  return { access_token: cachedAccessToken, expires_at: expiresAt };
+interface CachedToken {
+  access_token: string;
+  expires_at: number;
+}
+
+// single-key cache: {access_token, expires_at}. A non-object (legacy string) or
+// an expired value is treated as a miss — no TTL round trip, expires_at is authoritative.
+async function readCachedAccessToken(keys: ProfileKeys): Promise<CachedToken | null> {
+  const cached = await storage.get<CachedToken>(keys.accessToken);
+  if (!cached || typeof cached !== "object") return null;
+  if (typeof cached.access_token !== "string" || typeof cached.expires_at !== "number") {
+    return null;
+  }
+  if (cached.expires_at <= Date.now()) return null;
+  return cached;
 }
 
 export async function GET(request: NextRequest) {
@@ -29,27 +36,36 @@ export async function GET(request: NextRequest) {
   if (!isValidProfileId(profile)) {
     return NextResponse.json({ error: "invalid_profile" }, { status: 400 });
   }
-  if (!(await profileExists(profile))) {
-    return NextResponse.json({ error: "unknown_profile" }, { status: 404 });
-  }
-  if (!(await isProfileEnabled(profile))) {
-    return NextResponse.json({ error: "profile_disabled" }, { status: 403 });
-  }
 
   const keys = keysFor(profile);
 
-  const cached = await readCachedAccessToken(keys);
+  // parallelize the independent hot-path reads; branch below preserves 400→404→403 ordering
+  const [registry, enabled, cached] = await Promise.all([
+    listProfiles(),
+    isProfileEnabled(profile),
+    readCachedAccessToken(keys),
+  ]);
+
+  if (!registry.includes(profile)) {
+    return NextResponse.json({ error: "unknown_profile" }, { status: 404 });
+  }
+  if (!enabled) {
+    return NextResponse.json({ error: "profile_disabled" }, { status: 403 });
+  }
+
   if (cached) {
     return NextResponse.json({ ...cached, profile });
   }
 
-  const refreshToken = await storage.get<string>(keys.refreshToken);
+  const [refreshToken, reauthRequired] = await Promise.all([
+    storage.get<string>(keys.refreshToken),
+    storage.get<string>(keys.reauthRequired),
+  ]);
+
   if (!refreshToken) {
     return NextResponse.json({ error: "reauth_required", profile }, { status: 409 });
   }
-
   // no refresh retries after invalid_grant until re-auth clears the flag (spec)
-  const reauthRequired = await storage.get<string>(keys.reauthRequired);
   if (reauthRequired) {
     return NextResponse.json({ error: "reauth_required", profile }, { status: 409 });
   }
@@ -57,18 +73,32 @@ export async function GET(request: NextRequest) {
   // single-flight refresh; losers poll the cache, then refresh anyway as a fallback
   const gotLock = await storage.acquireLock(keys.refreshLock, 10);
 
+  let effectiveRefreshToken = refreshToken;
+
   if (!gotLock) {
-    for (let i = 0; i < 10; i++) {
-      await new Promise((r) => setTimeout(r, 200));
+    for (let i = 0; i < 4; i++) {
+      await new Promise((r) => setTimeout(r, 500));
       const cachedWhilePolling = await readCachedAccessToken(keys);
       if (cachedWhilePolling) {
         return NextResponse.json({ ...cachedWhilePolling, profile });
       }
     }
+    // winner stalled: re-read state before the fallback refresh so we don't act on stale data
+    const [freshRefresh, freshReauth] = await Promise.all([
+      storage.get<string>(keys.refreshToken),
+      storage.get<string>(keys.reauthRequired),
+    ]);
+    if (freshReauth) {
+      return NextResponse.json({ error: "reauth_required", profile }, { status: 409 });
+    }
+    if (!freshRefresh) {
+      return NextResponse.json({ error: "reauth_required", profile }, { status: 409 });
+    }
+    effectiveRefreshToken = freshRefresh;
   }
 
   try {
-    const result = await refreshAccessToken(refreshToken, profile);
+    const result = await refreshAccessToken(effectiveRefreshToken, profile);
 
     if (!result.ok) {
       if (result.invalidGrant) {
@@ -81,22 +111,23 @@ export async function GET(request: NextRequest) {
 
     const { access_token, expires_in, refresh_token: newRefreshToken } = result.data;
     const ttlSeconds = Math.max(expires_in - 60, 60);
+    const expiresAt = Date.now() + ttlSeconds * 1000;
     const nowIso = new Date().toISOString();
 
     const ops: Promise<unknown>[] = [
-      storage.setWithTTL(keys.accessToken, access_token, ttlSeconds),
+      storage.setWithTTL(keys.accessToken, { access_token, expires_at: expiresAt }, ttlSeconds),
       storage.set(keys.lastRefresh, nowIso),
       storage.del(keys.reauthRequired),
     ];
 
-    // rotated refresh token; issued_at is only ever set in /api/callback
-    if (newRefreshToken && newRefreshToken !== refreshToken) {
+    // rotated refresh token; only the lock winner may write it (a loser must not
+    // clobber the winner's rotation). issued_at is only ever set in /api/callback.
+    if (gotLock && newRefreshToken && newRefreshToken !== effectiveRefreshToken) {
       ops.push(storage.set(keys.refreshToken, newRefreshToken));
     }
 
     await Promise.all(ops);
 
-    const expiresAt = Date.now() + ttlSeconds * 1000;
     return NextResponse.json({ access_token, expires_at: expiresAt, profile });
   } finally {
     if (gotLock) {

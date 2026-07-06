@@ -6,9 +6,8 @@ export interface StorageAdapter {
   set(key: string, value: unknown): Promise<void>;
   setWithTTL(key: string, value: unknown, ttlSeconds: number): Promise<void>;
   del(...keys: string[]): Promise<void>;
-  exists(key: string): Promise<boolean>;
-  /** Remaining TTL in seconds. Redis semantics: -1 = no expiry, -2 = missing. */
-  ttl(key: string): Promise<number>;
+  /** Atomic INCR; sets the expiry window only when the key is newly created. */
+  incr(key: string, windowSeconds: number): Promise<number>;
   /** SET key value NX EX ttl — returns true if the lock was acquired. */
   acquireLock(key: string, ttlSeconds: number): Promise<boolean>;
 }

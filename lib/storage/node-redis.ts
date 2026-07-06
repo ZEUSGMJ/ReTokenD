@@ -44,13 +44,11 @@ export function createNodeRedisAdapter(url: string): StorageAdapter {
       const client = await getClient(url);
       await client.del(keys);
     },
-    async exists(key: string): Promise<boolean> {
+    async incr(key: string, windowSeconds: number): Promise<number> {
       const client = await getClient(url);
-      return (await client.exists(key)) > 0;
-    },
-    async ttl(key: string): Promise<number> {
-      const client = await getClient(url);
-      return client.ttl(key);
+      const count = await client.incr(key);
+      if (count === 1) await client.expire(key, windowSeconds, "NX");
+      return count;
     },
     async acquireLock(key: string, ttlSeconds: number): Promise<boolean> {
       const client = await getClient(url);
