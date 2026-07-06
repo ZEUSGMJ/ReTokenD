@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { storage } from "@/lib/storage";
-import { NOTIFY_THRESHOLDS_DAYS, SIX_MONTHS_MS, keysFor } from "@/lib/keys";
+import { NOTIFY_THRESHOLDS_DAYS, keysFor } from "@/lib/keys";
+import { tokenLifecycle } from "@/lib/lifecycle";
 import { notify, buildStatusEmbed } from "@/lib/notify";
 import { bearerMatches } from "@/lib/auth";
 import { listEnabledProfiles } from "@/lib/profiles";
@@ -16,20 +17,17 @@ async function checkProfile(profile: string): Promise<string[]> {
     storage.get<string>(keys.reauthRequired),
   ]);
 
-  const expiresAtIso = issuedAt
-    ? new Date(new Date(issuedAt).getTime() + SIX_MONTHS_MS).toISOString()
-    : null;
-  const daysLeft = issuedAt
-    ? Math.floor(
-        (new Date(issuedAt).getTime() + SIX_MONTHS_MS - Date.now()) / (1000 * 60 * 60 * 24)
-      )
-    : null;
+  const { expiresAtIso, daysLeft } = tokenLifecycle(
+    issuedAt,
+    Date.now(),
+    Boolean(reauthRequired)
+  );
 
   if (reauthRequired) {
     // once per incident; cleared on re-auth
     const alreadyNotifiedReauth = await storage.get<string>(keys.notifiedReauth);
     if (!alreadyNotifiedReauth) {
-      await notify(
+      const delivered = await notify(
         `ReTokenD [${profile}]: re-authorization is required. The refresh token was rejected by Spotify. Visit the dashboard and click Re-authorize.`,
         [
           buildStatusEmbed({
@@ -42,23 +40,24 @@ async function checkProfile(profile: string): Promise<string[]> {
           }),
         ]
       );
-      await storage.set(keys.notifiedReauth, "1");
-      fired.push("reauth_required");
+      // only mark delivered so a Discord outage retries next run
+      if (delivered) {
+        await storage.set(keys.notifiedReauth, "1");
+        fired.push("reauth_required");
+      }
     }
   }
 
   if (issuedAt && daysLeft !== null) {
     const displayDaysLeft = Math.max(daysLeft, 0);
 
-    // fire only the smallest not-yet-notified threshold per run
-    const sortedThresholds = [...NOTIFY_THRESHOLDS_DAYS].sort((a, b) => a - b);
-
-    for (const threshold of sortedThresholds) {
+    // NOTIFY_THRESHOLDS_DAYS is ascending: fire only the smallest not-yet-notified threshold
+    for (const threshold of NOTIFY_THRESHOLDS_DAYS) {
       if (daysLeft <= threshold) {
         const notifiedKey = keys.notified(threshold);
         const alreadyNotified = await storage.get<string>(notifiedKey);
         if (!alreadyNotified) {
-          await notify(
+          const delivered = await notify(
             `ReTokenD [${profile}]: refresh token expires in ${displayDaysLeft} day(s) (threshold: ${threshold}). Re-authorize soon at the dashboard.`,
             [
               buildStatusEmbed({
@@ -70,8 +69,12 @@ async function checkProfile(profile: string): Promise<string[]> {
               }),
             ]
           );
-          await storage.set(notifiedKey, "1");
-          fired.push(`threshold_${threshold}`);
+          if (delivered) {
+            // larger thresholds are implied by a smaller one firing — mark them all
+            const implied = NOTIFY_THRESHOLDS_DAYS.filter((t) => t >= threshold);
+            await Promise.all(implied.map((t) => storage.set(keys.notified(t), "1")));
+            fired.push(`threshold_${threshold}`);
+          }
           break;
         }
       }

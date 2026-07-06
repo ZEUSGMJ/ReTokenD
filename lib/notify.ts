@@ -52,11 +52,12 @@ export function buildStatusEmbed({
   };
 }
 
-export async function notify(message: string, embeds?: DiscordEmbed[]): Promise<void> {
+/** Returns true only on successful (2xx) delivery. Never throws. */
+export async function notify(message: string, embeds?: DiscordEmbed[]): Promise<boolean> {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) {
     console.error("notify(): DISCORD_WEBHOOK_URL is not set; skipping notification");
-    return;
+    return false;
   }
 
   try {
@@ -72,8 +73,11 @@ export async function notify(message: string, embeds?: DiscordEmbed[]): Promise<
     });
     if (!res.ok) {
       console.error(`notify(): Discord webhook responded ${res.status}`);
+      return false;
     }
+    return true;
   } catch (err) {
     console.error("notify(): failed to send Discord webhook", err);
+    return false;
   }
 }
