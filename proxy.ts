@@ -2,18 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE_NAME, isValidSessionCookie } from "@/lib/session";
 
 // Next 16 middleware ("proxy"). Edge runtime — Web Crypto only.
-// /api/token and /api/check are excluded by the matcher; they have their own bearer auth.
-const PROTECTED_PREFIXES = ["/api/login", "/api/callback"];
+// Fail-closed: the matcher protects everything except the bearer-authed APIs
+// (/api/token, /api/check) and static assets, so new routes are gated by default.
+// Signature + age only here; the server-side generation check runs Node-side.
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const isProtected =
-    pathname === "/" ||
-    pathname === "/login" ||
-    PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
-
-  if (isProtected && pathname !== "/login") {
+  // /login must render without a session (and /robots.txt if it ever slips through)
+  if (pathname !== "/login" && pathname !== "/robots.txt") {
     const sessionSecret = process.env.SESSION_SECRET;
     const cookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
     const valid = sessionSecret
@@ -34,5 +31,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/login", "/api/login", "/api/callback"],
+  matcher: [
+    "/((?!api/token|api/check|_next/static|_next/image|favicon.ico|robots.txt|.*\\.(?:svg|png|ico)).*)",
+  ],
 };
