@@ -104,6 +104,16 @@ function envSuffix(profile: string): string {
   return profile.toUpperCase().replace(/-/g, "_");
 }
 
+/** True when env provides a full credential pair for this profile (per-profile or global). */
+export function hasEnvCredentials(profile: string): boolean {
+  const suffix = envSuffix(profile);
+  const perProfile =
+    Boolean(process.env[`SPOTIFY_CLIENT_ID_${suffix}`]) &&
+    Boolean(process.env[`SPOTIFY_SECRET_ID_${suffix}`]);
+  const global = Boolean(process.env.SPOTIFY_CLIENT_ID) && Boolean(process.env.SPOTIFY_SECRET_ID);
+  return perProfile || global;
+}
+
 async function credentialsFor(
   profile: string
 ): Promise<{ clientId: string; clientSecret: string }> {

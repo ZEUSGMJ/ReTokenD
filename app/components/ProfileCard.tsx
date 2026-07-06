@@ -31,6 +31,7 @@ export interface ProfileCardData {
   configuredScopes: string[];
   hasCustomApp: boolean;
   clientId: string | null;
+  showCredentials: boolean;
 }
 
 export function ProfileCard({ data }: { data: ProfileCardData }) {
@@ -48,6 +49,7 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
     configuredScopes,
     hasCustomApp,
     clientId,
+    showCredentials,
   } = data;
 
   const showWarning = status !== "valid";
@@ -128,18 +130,20 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
           {profile !== DEFAULT_PROFILE && <DeleteProfileButton profile={profile} />}
         </div>
 
-        <details className="rounded-md border border-border">
-          <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
-            Spotify app {hasCustomApp ? "(custom)" : "(shared)"}
-          </summary>
-          <div className="border-t border-border p-3">
-            <ProfileCredentialsForm
-              profile={profile}
-              clientId={clientId}
-              hasCustomApp={hasCustomApp}
-            />
-          </div>
-        </details>
+        {showCredentials && (
+          <details className="rounded-md border border-border">
+            <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+              Spotify app {hasCustomApp ? "(custom)" : "(shared)"}
+            </summary>
+            <div className="border-t border-border p-3">
+              <ProfileCredentialsForm
+                profile={profile}
+                clientId={clientId}
+                hasCustomApp={hasCustomApp}
+              />
+            </div>
+          </details>
+        )}
 
         <details className="rounded-md border border-border">
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Scopes</summary>

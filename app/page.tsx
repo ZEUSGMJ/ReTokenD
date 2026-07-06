@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 import { storage } from "@/lib/storage";
-import { keysFor } from "@/lib/keys";
+import { DEFAULT_PROFILE, keysFor } from "@/lib/keys";
 import { tokenLifecycle } from "@/lib/lifecycle";
 import { isSessionCurrent } from "@/lib/session-server";
 import { getProfileMeta, isProfileEnabled, listProfiles } from "@/lib/profiles";
-import { getConfiguredScopes } from "@/lib/spotify";
+import { getConfiguredScopes, hasEnvCredentials } from "@/lib/spotify";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ProfileCard, type ProfileCardData } from "@/app/components/ProfileCard";
@@ -36,6 +36,10 @@ async function loadProfile(profile: string, nowMs: number): Promise<ProfileCardD
   // clearProfileCredentials deletes both), so client_id presence ⇒ custom app.
   const hasCustomApp = Boolean(clientId);
 
+  // default is fully served by env creds — its empty credentials form is noise
+  const showCredentials =
+    hasCustomApp || profile !== DEFAULT_PROFILE || !hasEnvCredentials(profile);
+
   return {
     profile,
     enabled,
@@ -50,6 +54,7 @@ async function loadProfile(profile: string, nowMs: number): Promise<ProfileCardD
     configuredScopes,
     hasCustomApp,
     clientId,
+    showCredentials,
   };
 }
 

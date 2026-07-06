@@ -10,6 +10,8 @@ const initialState: CreateProfileState = {};
 export function AddProfileForm() {
   const [state, action, pending] = useActionState(createProfile, initialState);
 
+  console.log(state)
+
   return (
     <form action={action} className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
