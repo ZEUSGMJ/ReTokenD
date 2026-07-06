@@ -109,8 +109,8 @@ export function hasEnvCredentials(profile: string): boolean {
   const suffix = envSuffix(profile);
   const perProfile =
     Boolean(process.env[`SPOTIFY_CLIENT_ID_${suffix}`]) &&
-    Boolean(process.env[`SPOTIFY_SECRET_ID_${suffix}`]);
-  const global = Boolean(process.env.SPOTIFY_CLIENT_ID) && Boolean(process.env.SPOTIFY_SECRET_ID);
+    Boolean(process.env[`SPOTIFY_CLIENT_SECRET_${suffix}`]);
+  const global = Boolean(process.env.SPOTIFY_CLIENT_ID) && Boolean(process.env.SPOTIFY_CLIENT_SECRET);
   return perProfile || global;
 }
 
@@ -130,10 +130,10 @@ async function credentialsFor(
   const suffix = envSuffix(profile);
   const clientId = process.env[`SPOTIFY_CLIENT_ID_${suffix}`] ?? process.env.SPOTIFY_CLIENT_ID;
   const clientSecret =
-    process.env[`SPOTIFY_SECRET_ID_${suffix}`] ?? process.env.SPOTIFY_SECRET_ID;
+    process.env[`SPOTIFY_CLIENT_SECRET_${suffix}`] ?? process.env.SPOTIFY_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     throw new Error(
-      `Spotify credentials not set for profile "${profile}" (dashboard or SPOTIFY_CLIENT_ID / SPOTIFY_SECRET_ID)`
+      `Spotify credentials not set for profile "${profile}" (dashboard or SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET)`
     );
   }
   return { clientId, clientSecret };

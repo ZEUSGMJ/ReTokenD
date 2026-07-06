@@ -46,8 +46,8 @@ Only ReTokenD ever calls Spotify's refresh endpoint → no token-rotation races.
 
 | Var | Purpose |
 |-----|---------|
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_SECRET_ID` | Default Spotify app credentials, used by any profile without its own |
-| `SPOTIFY_CLIENT_ID_<PROFILE>` / `SPOTIFY_SECRET_ID_<PROFILE>` | Optional per-profile override (suffix = profile id upper-cased, `-`→`_`); dashboard-entered credentials take precedence over these |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Default Spotify app credentials, used by any profile without its own |
+| `SPOTIFY_CLIENT_ID_<PROFILE>` / `SPOTIFY_CLIENT_SECRET_<PROFILE>` | Optional per-profile override (suffix = profile id upper-cased, `-`→`_`); dashboard-entered credentials take precedence over these |
 | `RETOKEND_SECRET` | Bearer secret the consumer projects send to `/api/token` |
 | `ADMIN_PASSWORD` | Gates dashboard + `/login` + `/api/login` + `/api/callback` |
 | `SESSION_SECRET` | Signs the admin session cookie and the OAuth-state cookie; fallback key for `CREDENTIALS_SECRET` |
@@ -206,4 +206,4 @@ Add `${BASE_URL}/api/callback` (and a `http://127.0.0.1:3000/api/callback` for l
 
 ## 13. After it's live
 
-Tell me the deployed `BASE_URL` and confirm `/api/token` works. Then I return to my **portfolio** session and switch its `lib/utils/spotify.js` to fetch from `${RETOKEND_URL}/api/token` with the bearer secret, and remove the old `SPOTIFY_REFRESH_TOKEN`/`SPOTIFY_SECRET_ID` usage there. The other two projects get the same consumer change.
+Tell me the deployed `BASE_URL` and confirm `/api/token` works. Then I return to my **portfolio** session and switch its `lib/utils/spotify.js` to fetch from `${RETOKEND_URL}/api/token` with the bearer secret, and remove the old `SPOTIFY_REFRESH_TOKEN`/`SPOTIFY_CLIENT_SECRET` usage there. The other two projects get the same consumer change.

@@ -66,8 +66,8 @@ Copy `.env.example` to `.env` (Docker) or `.env.local` (local development).
 
 | Variable | Purpose |
 | ---------- | ------- |
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_SECRET_ID` | Default Spotify app credentials |
-| `SPOTIFY_CLIENT_ID_<PROFILE>` / `SPOTIFY_SECRET_ID_<PROFILE>` | Optional per-profile credentials |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Default Spotify app credentials |
+| `SPOTIFY_CLIENT_ID_<PROFILE>` / `SPOTIFY_CLIENT_SECRET_<PROFILE>` | Optional per-profile credentials |
 | `RETOKEND_SECRET` | Bearer secret for `/api/token` |
 | `ADMIN_PASSWORD` | Dashboard password |
 | `SESSION_SECRET` | Session and OAuth state signing key |
@@ -89,7 +89,7 @@ In the Spotify Developer Dashboard, add the following redirect URIs:
 
 Every profile shares the same callback URL. The selected profile is stored in the signed OAuth state, not in the callback URL.
 
-Each profile can use its own Spotify application. Credentials can be configured through the dashboard or with `SPOTIFY_CLIENT_ID_<PROFILE>` / `SPOTIFY_SECRET_ID_<PROFILE>`. Dashboard values take precedence.
+Each profile can use its own Spotify application. Credentials can be configured through the dashboard or with `SPOTIFY_CLIENT_ID_<PROFILE>` / `SPOTIFY_CLIENT_SECRET_<PROFILE>`. Dashboard values take precedence.
 
 ## Profiles
 

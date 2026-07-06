@@ -18,7 +18,7 @@ See `CLAUDE.md` for the problem statement and hard constraints, and `BUILD_SPEC.
 
 ## Golden rules (do not deviate)
 
-- **Secrets only in env / Redis.** Never hardcode or commit `SPOTIFY_SECRET_ID`, `ADMIN_PASSWORD`, `RETOKEND_SECRET`, `SESSION_SECRET`, `CREDENTIALS_SECRET`, etc. `.env.example` lists all vars (empty values only); `.gitignore` covers `.env*`.
+- **Secrets only in env / Redis.** Never hardcode or commit `SPOTIFY_CLIENT_SECRET`, `ADMIN_PASSWORD`, `RETOKEND_SECRET`, `SESSION_SECRET`, `CREDENTIALS_SECRET`, etc. `.env.example` lists all vars (empty values only); `.gitignore` covers `.env*`.
 - **`/api/token` returns access token ONLY.** Never leak the refresh token to consumers.
 - **`issued_at` is sacred.** Set **only** in `/api/callback` on full re-auth; never touched on a normal token refresh. Spotify doesn't extend the 6-month window on refresh, so tampering with `issued_at` breaks the countdown.
 - **On `invalid_grant` from Spotify: no retry.** Set the profile's `reauth_required` flag and return `409`. This signals to the consumer and dashboard that re-auth is needed.
@@ -52,7 +52,7 @@ See `CLAUDE.md` for the problem statement and hard constraints, and `BUILD_SPEC.
 ### Spotify OAuth & token refresh
 - File: `lib/spotify.ts` — constants, scope catalog, `DEFAULT_SCOPES`, `getConfiguredScopes()`, `buildAuthorizeUrl()`, `exchangeCodeForTokens()`, `refreshAccessToken()`, `fetchSpotifyProfile()`.
 - Scopes: `DEFAULT_SCOPES` (3 baseline scopes) + `SPOTIFY_SCOPE_CATALOG` (all standard user scopes, grouped, no partner-only SOA). Configurable per profile from the dashboard; applied on the **next** re-auth.
-- Credentials resolve per profile in this order (`credentialsFor()`): dashboard-entered creds in Redis (secret AES-256-GCM decrypted via `lib/crypto.ts`) → `SPOTIFY_CLIENT_ID_<PROFILE>`/`SPOTIFY_SECRET_ID_<PROFILE>` env pair → global `SPOTIFY_CLIENT_ID`/`SPOTIFY_SECRET_ID`. Always resolved as a coherent pair, never mixed.
+- Credentials resolve per profile in this order (`credentialsFor()`): dashboard-entered creds in Redis (secret AES-256-GCM decrypted via `lib/crypto.ts`) → `SPOTIFY_CLIENT_ID_<PROFILE>`/`SPOTIFY_CLIENT_SECRET_<PROFILE>` env pair → global `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET`. Always resolved as a coherent pair, never mixed.
 
 ### Token refresh endpoint (`/api/token`)
 - Takes `?profile=` (defaults to `default`). Validates the id (`400 invalid_profile`), that it's registered (`404 unknown_profile`), and that it's enabled (`403 profile_disabled`).
