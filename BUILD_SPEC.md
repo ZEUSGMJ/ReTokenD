@@ -1,6 +1,6 @@
 # ReTokenD — Build Spec
 
-A private, password-gated Next.js (App Router) app, deployable on Vercel or self-hosted (Docker). It is the **single source of truth** for one or more Spotify refresh tokens ("profiles"), used by my personal portfolio plus other projects.
+A password-gated Next.js (App Router) app, deployable on Vercel or self-hosted (Docker). It is the **single source of truth** for one or more Spotify refresh tokens ("profiles"), used by my personal portfolio plus other projects.
 
 > **v2 — profiles.** This spec has been updated to match what's actually built: multi-profile support, dual storage backends (Upstash or self-hosted Redis), per-profile Spotify app credentials, and login rate limiting. Historical v1 (single token, Upstash-only) is superseded below.
 
@@ -188,7 +188,7 @@ Add `${BASE_URL}/api/callback` (and a `http://127.0.0.1:3000/api/callback` for l
 - Per-profile client secrets encrypted at rest (AES-256-GCM, `CREDENTIALS_SECRET`/`SESSION_SECRET`).
 - Signed, httpOnly, secure session and OAuth-state cookies.
 - Validate OAuth `state`.
-- Keep the repo **private**.
+- The repo is public — secrets live only in env/Redis; never in code or committed files.
 
 ---
 

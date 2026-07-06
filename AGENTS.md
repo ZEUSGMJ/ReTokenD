@@ -25,7 +25,7 @@ See `CLAUDE.md` for the problem statement and hard constraints, and `BUILD_SPEC.
 - **Constant-time compares for bearer/session auth.** `constantTimeEquals()` / `bearerMatches()` in `lib/auth.ts` (Node-only, `node:crypto`). Session/OAuth-state cookie signing uses Web Crypto HMAC (Edge-safe, `lib/session.ts`).
 - **Terse developer comments only.** Comments explain non-obvious "why," not "what." Never add descriptive/narrative comments — match the existing style.
 - **Dark mode only.** No theme toggle. `<html class="dark">` is baked in.
-- **Keep the repo private.** No public forks; OAuth secrets are in plaintext in `.env.local` during dev.
+- **Never commit `.env*` files.** The repo is public; OAuth secrets are in plaintext in `.env.local` during dev, and `.gitignore` covers `.env*` (only `.env.example` is tracked).
 
 ## Architecture highlights
 

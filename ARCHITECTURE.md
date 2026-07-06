@@ -104,7 +104,7 @@ Two non-profile keys: `spotify:profiles` (the registry, above) and `session:gene
 
 The registry (`spotify:profiles`, a JSON array) is the source of truth for which profiles exist. [lib/profiles.ts](lib/profiles.ts) guards registry read-modify-writes with an **in-process promise-chain mutex** (fine for a single server; on serverless each instance has its own chain — acceptable for a single-admin app). On first use it migrates legacy pre-profile keys (`spotify:refresh_token`, …) into the `default` profile, so old installs heal themselves.
 
-Per-profile Spotify credentials resolve in this order ([lib/spotify.ts](lib/spotify.ts) `credentialsFor`): dashboard-entered creds in Redis (secret decrypted) → `SPOTIFY_CLIENT_ID_<PROFILE>` env pair → global `SPOTIFY_CLIENT_ID` env pair. Stored and env creds are used as coherent pairs, never mixed.
+Per-profile Spotify credentials resolve in this order ([lib/spotify.ts](lib/spotify.ts) `credentialsFor`): dashboard-entered creds in Redis (secret decrypted) → `SPOTIFY_CLIENT_ID_<PROFILE>` env pair → global `SPOTIFY_CLIENT_ID` env pair. Stored and env creds are used as coherent pairs, never mixed. On the dashboard, the `default` profile's **Spotify app** panel is hidden while env credentials cover it and no custom app is stored (`hasEnvCredentials` in lib/spotify.ts) — it's always shown on other profiles.
 
 ## Request flows
 
