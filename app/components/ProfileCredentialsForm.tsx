@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   clearProfileCredentials,
   saveProfileCredentials,
@@ -15,9 +16,6 @@ const ERROR_TEXT: Record<string, string> = {
   missing_client_id: "Client ID is required.",
   missing_client_secret: "Client secret is required the first time.",
 };
-
-const inputClass =
-  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 export function ProfileCredentialsForm({
   profile,
@@ -42,21 +40,19 @@ export function ProfileCredentialsForm({
         <input type="hidden" name="profile" value={profile} />
         <label className="flex flex-col gap-1">
           <span className="text-xs font-medium">Client ID</span>
-          <input
+          <Input
             name="clientId"
             defaultValue={clientId ?? ""}
             autoComplete="off"
-            className={inputClass}
           />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs font-medium">Client Secret</span>
-          <input
+          <Input
             name="clientSecret"
             type="password"
             autoComplete="off"
             placeholder={hasCustomApp ? "•••••••• (leave blank to keep current)" : "Client secret"}
-            className={inputClass}
           />
         </label>
 

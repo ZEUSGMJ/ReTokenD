@@ -84,7 +84,8 @@ export const ALL_SCOPE_IDS: ReadonlySet<string> = new Set(
 
 export async function getConfiguredScopes(profile: string): Promise<string[]> {
   const stored = await storage.get<string[]>(keysFor(profile).scopes);
-  if (Array.isArray(stored) && stored.length > 0) return stored;
+  // [] is a valid saved selection (no scopes); default only when nothing is saved
+  if (Array.isArray(stored)) return stored;
   return [...DEFAULT_SCOPES];
 }
 
@@ -101,12 +102,6 @@ export function getRedirectUri(): string {
 // Always resolved as a pair, never mixed.
 function envSuffix(profile: string): string {
   return profile.toUpperCase().replace(/-/g, "_");
-}
-
-export async function hasStoredCredentials(profile: string): Promise<boolean> {
-  const keys = keysFor(profile);
-  const enc = await storage.get<string>(keys.clientSecretEnc);
-  return typeof enc === "string" && enc.length > 0;
 }
 
 async function credentialsFor(
@@ -162,26 +157,34 @@ async function parseJsonSafe(res: Response): Promise<unknown | null> {
   }
 }
 
-export async function exchangeCodeForTokens(
-  code: string,
-  profile: string
-): Promise<SpotifyTokenResponse> {
-  const body = new URLSearchParams({
-    grant_type: "authorization_code",
-    code,
-    redirect_uri: getRedirectUri(),
-  });
-
+// shared POST to Spotify's token endpoint; callers map the result (throw vs result object)
+async function postTokenRequest(
+  profile: string,
+  params: URLSearchParams
+): Promise<{ res: Response; data: unknown | null }> {
   const res = await fetch(SPOTIFY_TOKEN_URL, {
     method: "POST",
     headers: {
       Authorization: await getBasicAuthHeader(profile),
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: body.toString(),
+    body: params.toString(),
   });
+  return { res, data: await parseJsonSafe(res) };
+}
 
-  const data = await parseJsonSafe(res);
+export async function exchangeCodeForTokens(
+  code: string,
+  profile: string
+): Promise<SpotifyTokenResponse> {
+  const { res, data } = await postTokenRequest(
+    profile,
+    new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: getRedirectUri(),
+    })
+  );
 
   if (data === null) {
     throw new Error(`Spotify token exchange failed: HTTP ${res.status}`);
@@ -204,21 +207,13 @@ export async function refreshAccessToken(
   refreshToken: string,
   profile: string
 ): Promise<RefreshResult> {
-  const body = new URLSearchParams({
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-  });
-
-  const res = await fetch(SPOTIFY_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      Authorization: await getBasicAuthHeader(profile),
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: body.toString(),
-  });
-
-  const data = await parseJsonSafe(res);
+  const { res, data } = await postTokenRequest(
+    profile,
+    new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    })
+  );
 
   if (!res.ok) {
     if (data === null) {
@@ -247,11 +242,12 @@ export async function buildAuthorizeUrl(
   const params = new URLSearchParams({
     response_type: "code",
     client_id: clientId,
-    scope: scopes.join(" "),
     redirect_uri: getRedirectUri(),
     state,
     show_dialog: "true",
   });
+  // omit scope entirely when empty — Spotify then grants only its public defaults
+  if (scopes.length > 0) params.set("scope", scopes.join(" "));
   return `${SPOTIFY_AUTHORIZE_URL}?${params.toString()}`;
 }
 

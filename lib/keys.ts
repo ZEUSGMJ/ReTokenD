@@ -14,11 +14,9 @@ export const PROFILES_REGISTRY_KEY = "spotify:profiles";
 export const LEGACY_KEYS = {
   refreshToken: "spotify:refresh_token",
   refreshTokenIssuedAt: "spotify:refresh_token:issued_at",
-  accessToken: "spotify:access_token",
   reauthRequired: "spotify:reauth_required",
   lastRefresh: "spotify:last_refresh",
   scopes: "spotify:scopes",
-  notified: (days: number) => `spotify:notified:${days}`,
 } as const;
 
 export function keysFor(profile: string) {
@@ -43,6 +41,16 @@ export function keysFor(profile: string) {
 
 export type ProfileKeys = ReturnType<typeof keysFor>;
 
-export const NOTIFY_THRESHOLDS_DAYS = [14, 7, 1] as const;
+// ascending; callers rely on this order (smallest threshold fires first)
+export const NOTIFY_THRESHOLDS_DAYS = [1, 7, 14] as const;
 
 export const SIX_MONTHS_MS = 1000 * 60 * 60 * 24 * 30 * 6; // Spotify's ~6mo expiry window
+
+/** Every Redis key a profile can own — the purge list for deleteProfile. */
+export function allKeysFor(profile: string): string[] {
+  const keys = keysFor(profile);
+  const staticKeys = (Object.values(keys) as unknown[]).filter(
+    (v): v is string => typeof v === "string"
+  );
+  return [...staticKeys, ...NOTIFY_THRESHOLDS_DAYS.map((d) => keys.notified(d))];
+}

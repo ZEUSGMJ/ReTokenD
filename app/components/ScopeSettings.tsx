@@ -50,7 +50,7 @@ export function ScopeSettings({
 
       <div className="flex items-center justify-between gap-4">
         <p className="text-xs text-muted-foreground">
-          Changes apply the next time you Re-authorize.
+          Changes apply the next time you Re-authorize. Unchecking everything requests no scopes.
         </p>
         <Button type="submit" size="sm">
           Save scopes

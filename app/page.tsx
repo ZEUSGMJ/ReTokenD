@@ -1,19 +1,21 @@
+import { redirect } from "next/navigation";
 import { storage } from "@/lib/storage";
-import { SIX_MONTHS_MS, keysFor } from "@/lib/keys";
+import { keysFor } from "@/lib/keys";
+import { tokenLifecycle } from "@/lib/lifecycle";
+import { isSessionCurrent } from "@/lib/session-server";
 import { getProfileMeta, isProfileEnabled, listProfiles } from "@/lib/profiles";
-import { getConfiguredScopes, hasStoredCredentials } from "@/lib/spotify";
+import { getConfiguredScopes } from "@/lib/spotify";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ProfileCard, type ProfileCardData } from "@/app/components/ProfileCard";
 import { AddProfileForm } from "@/app/components/AddProfileForm";
-import type { TokenStatus } from "@/app/components/StatusBadge";
 import { logout } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
 
 async function loadProfile(profile: string, nowMs: number): Promise<ProfileCardData> {
   const keys = keysFor(profile);
-  const [issuedAt, lastRefresh, reauthRequired, enabled, meta, configuredScopes, clientId, hasCustomApp] =
+  const [issuedAt, lastRefresh, reauthRequired, enabled, meta, configuredScopes, clientId] =
     await Promise.all([
       storage.get<string>(keys.refreshTokenIssuedAt),
       storage.get<string>(keys.lastRefresh),
@@ -22,22 +24,17 @@ async function loadProfile(profile: string, nowMs: number): Promise<ProfileCardD
       getProfileMeta(profile),
       getConfiguredScopes(profile),
       storage.get<string>(keys.clientId),
-      hasStoredCredentials(profile),
     ]);
 
-  const expiresAtIso = issuedAt
-    ? new Date(new Date(issuedAt).getTime() + SIX_MONTHS_MS).toISOString()
-    : null;
-  const daysLeft = expiresAtIso
-    ? Math.floor((new Date(expiresAtIso).getTime() - nowMs) / (1000 * 60 * 60 * 24))
-    : null;
+  const { expiresAtIso, daysLeft, status } = tokenLifecycle(
+    issuedAt,
+    nowMs,
+    Boolean(reauthRequired)
+  );
 
-  let status: TokenStatus = "expired-or-reauth-required";
-  if (!reauthRequired && issuedAt && daysLeft !== null) {
-    if (daysLeft <= 0) status = "expired-or-reauth-required";
-    else if (daysLeft <= 14) status = "expiring-soon";
-    else status = "valid";
-  }
+  // saveProfileCredentials always writes client_id + secret as a pair (and
+  // clearProfileCredentials deletes both), so client_id presence ⇒ custom app.
+  const hasCustomApp = Boolean(clientId);
 
   return {
     profile,
@@ -57,6 +54,9 @@ async function loadProfile(profile: string, nowMs: number): Promise<ProfileCardD
 }
 
 export default async function Dashboard() {
+  // proxy checks signature + age; the generation check (server-side revocation) runs here
+  if (!(await isSessionCurrent())) redirect("/login");
+
   const profiles = await listProfiles();
 
   // force-dynamic: renders once per request

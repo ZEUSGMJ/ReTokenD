@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { createProfile, type CreateProfileState } from "@/app/actions";
 
 const initialState: CreateProfileState = {};
@@ -12,12 +13,12 @@ export function AddProfileForm() {
   return (
     <form action={action} className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <input
+        <Input
           name="profileId"
           placeholder="e.g. portfolio"
           pattern="[a-z0-9\-]{1,32}"
           required
-          className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex-1"
         />
         <Button type="submit" size="sm" disabled={pending}>
           Create

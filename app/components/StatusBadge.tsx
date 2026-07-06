@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
+import type { TokenStatus } from "@/lib/lifecycle";
 
-export type TokenStatus = "valid" | "expiring-soon" | "expired-or-reauth-required";
+export type { TokenStatus };
 
 export function StatusBadge({ status }: { status: TokenStatus }) {
   switch (status) {

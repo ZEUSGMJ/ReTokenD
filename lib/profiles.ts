@@ -2,6 +2,7 @@
 
 import { storage } from "@/lib/storage";
 import {
+  allKeysFor,
   DEFAULT_PROFILE,
   isValidProfileId,
   LEGACY_KEYS,
@@ -73,7 +74,7 @@ async function initializeRegistry(): Promise<void> {
 
 export async function listProfiles(): Promise<string[]> {
   await ensureInitialized();
-  return (await storage.get<string[]>(PROFILES_REGISTRY_KEY)) ?? [DEFAULT_PROFILE];
+  return (await storage.get<string[]>(PROFILES_REGISTRY_KEY)) ?? [];
 }
 
 export async function profileExists(id: string): Promise<boolean> {
@@ -115,8 +116,6 @@ export async function deleteProfile(id: string): Promise<void> {
   if (id === DEFAULT_PROFILE) return;
   if (!isValidProfileId(id)) throw new Error(`invalid profile id: ${id}`);
 
-  const keys = keysFor(id);
-
   // registry removal must precede the key purge, or concurrent writers can resurrect keys
   await withRegistryLock(async () => {
     const registry = (await storage.get<string[]>(PROFILES_REGISTRY_KEY)) ?? [];
@@ -126,19 +125,14 @@ export async function deleteProfile(id: string): Promise<void> {
     );
   });
 
+  // derived purge list — new keys added to keysFor are removed automatically
+  await storage.del(...allKeysFor(id));
+}
+
+/** Clears the re-auth + all threshold notification dedupe flags (used on re-auth). */
+export async function clearNotificationFlags(profile: string): Promise<void> {
+  const keys = keysFor(profile);
   await storage.del(
-    keys.refreshToken,
-    keys.refreshTokenIssuedAt,
-    keys.accessToken,
-    keys.reauthRequired,
-    keys.lastRefresh,
-    keys.scopes,
-    keys.refreshLock,
-    keys.enabled,
-    keys.accountId,
-    keys.displayName,
-    keys.clientId,
-    keys.clientSecretEnc,
     keys.notifiedReauth,
     ...NOTIFY_THRESHOLDS_DAYS.map((d) => keys.notified(d))
   );
