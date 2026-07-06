@@ -70,7 +70,7 @@ Every profile (`default`, `portfolio`, …) gets its own key set under `spotify:
 |-----|-------|-------|
 | `refresh_token` | string | The live refresh token. Updated on re-auth and on rotation. |
 | `refresh_token:issued_at` | ISO 8601 string | **Set only on full re-auth** (`/api/callback`). Drives the countdown. Never updated on refresh. |
-| `access_token` | string | Cached access token. TTL = `expires_in - 60` (min 60s). |
+| `access_token` | JSON `{access_token, expires_at}` | Cached token blob (`expires_at` = epoch ms). TTL = `expires_in - 60` (min 60s); `expires_at` is authoritative and a value at/after it is a cache miss. |
 | `reauth_required` | "1" / flag | Set when a refresh returns `invalid_grant`. Cleared on successful re-auth. |
 | `last_refresh` | ISO 8601 string | Last successful access-token refresh time. Set on every `/api/token` success; displayed on dashboard. |
 | `scopes` | JSON array of strings | Admin-selected scope ids, e.g. `["user-top-read","user-read-currently-playing"]`. Persisted by the dashboard; applied on next re-auth. |
@@ -81,7 +81,7 @@ Every profile (`default`, `portfolio`, …) gets its own key set under `spotify:
 | `notified:reauth` | "1" / flag | De-dupe marker for the re-auth alert. Cleared on re-auth. |
 | `notified:{days}` | "1" | De-dupe marker so each expiry threshold alert (14/7/1) fires once per cycle. Cleared on re-auth. |
 
-Registry: `spotify:profiles` — a JSON array of profile ids; the source of truth for which profiles exist (`lib/profiles.ts`). Bare (non-namespaced) keys like `spotify:refresh_token` are **legacy** — they exist only as one-time migration input, read once to seed the `default` profile on first use, and are never written to afterward.
+Non-profile keys: `spotify:profiles` (the registry — a JSON array of profile ids, the source of truth for which profiles exist, `lib/profiles.ts`) and `session:generation` (a monotonic counter embedded in every session cookie; `logout()` bumps it to revoke all outstanding cookies server-side). Bare (non-namespaced) keys like `spotify:refresh_token` are **legacy** — they exist only as one-time migration input, read once to seed the `default` profile on first use, and are never written to afterward.
 
 ---
 
@@ -118,12 +118,12 @@ user-read-recently-played
 ### `GET /api/token?profile=x` — (bearer-gated, for consumer projects)
 - Require header `Authorization: Bearer ${RETOKEND_SECRET}`; else `401 unauthorized`.
 - Validate `profile` (defaults to `default`): invalid id → `400 invalid_profile`; not registered → `404 unknown_profile`; disabled → `403 profile_disabled`.
-- If `access_token` cached → return `{ access_token, expires_at, profile }` immediately.
+- The registry, `enabled` flag, and cached token are read in parallel; the 404/403 branches preserve their ordering. If the cached `{access_token, expires_at}` blob is present and unexpired → return `{ access_token, expires_at, profile }` immediately.
 - If no refresh token stored, **or** `reauth_required` is set → `409 { error: "reauth_required", profile }` **without calling Spotify** (no retries after `invalid_grant` until re-auth clears the flag).
-- Else: acquire `refresh_lock` (10s NX lock). Losers poll the access-token cache (10 iterations × 200ms), then fall back to a normal refresh as a safety valve.
+- Else: acquire `refresh_lock` (10s NX lock). Losers poll the access-token cache (4 iterations × 500ms); if still nothing, a loser **re-reads `refresh_token` + `reauth_required`** (409 if now flagged/absent) before falling back to a normal refresh with the fresh token as a safety valve.
 - Winner: read `refresh_token` and refresh:
   - `POST https://accounts.spotify.com/api/token`, `Authorization: Basic base64(id:secret)`, body `grant_type=refresh_token`, `refresh_token`.
-  - On `200`: cache `access_token` (TTL `expires_in - 60`, min 60s), set `last_refresh = now`, clear `reauth_required`; if the response **includes a new `refresh_token`**, overwrite `refresh_token` but **DO NOT touch `issued_at`**. Return `{ access_token, expires_at, profile }`.
+  - On `200`: cache `access_token` as `{access_token, expires_at}` (TTL `expires_in - 60`, min 60s), set `last_refresh = now`, clear `reauth_required`; if the response **includes a new `refresh_token`**, overwrite `refresh_token` **only while holding the lock** (a loser must not clobber the winner's rotation) but **DO NOT touch `issued_at`**. Return `{ access_token, expires_at, profile }`.
   - On `400 invalid_grant`: set `reauth_required`, **do not retry**, return `409 { error: "reauth_required", profile }`.
   - Other Spotify errors: `502 { error: "spotify_error" }`.
 - **Never** include the refresh token in any response.
@@ -134,20 +134,20 @@ user-read-recently-played
 - **Add profile** form/card: creates and registers a new profile id.
 
 ### `GET /login` + `POST /login` (server action) — admin password page
-- Simple password form. Rate limited: tracks failures per client IP in Redis (`login:fail:<ip>`, 15-minute TTL); at 10 failures further attempts (even correct ones) are rejected until the window expires. A successful login clears the counter.
-- Constant-time compare against `ADMIN_PASSWORD`; on success set a signed session cookie (`retokend_session`, `SESSION_SECRET`, 30-day TTL); redirect to `/`.
+- Simple password form. Rate limited atomically (`storage.incr`, window preserved): per client IP in Redis (`login:fail:<ip>`, 15-min window) at 10 failures, plus a global `login:fail:global` at 50/15-min so a spoofed `X-Forwarded-For` can't buy unlimited guesses; at the limit further attempts (even correct ones) are rejected until the window expires. A successful login clears the per-IP counter.
+- Constant-time compare against `ADMIN_PASSWORD`; on success set a signed session cookie (`retokend_session`, `SESSION_SECRET`, 30-day TTL) embedding the current `session:generation`; redirect to `/`. `logout()` bumps `session:generation` to revoke every outstanding cookie server-side.
 
 ### `GET /api/check` — cron (secret-gated)
 - Validate the request (`Authorization: Bearer ${CRON_SECRET}`).
-- Iterate every **enabled** profile. For each: if `reauth_required`, send one Discord alert (deduped via `notified:reauth`); else compute days-left from `issued_at` and, if `<=` the smallest un-notified threshold (14/7/1), send a notification and set `notified:{threshold}` — only one threshold fires per run per profile.
+- Iterate every **enabled** profile. For each: if `reauth_required`, send one Discord alert (deduped via `notified:reauth`); else compute days-left from `issued_at` and, if `<=` the smallest un-notified threshold (ascending 1/7/14), send a notification — only one threshold fires per run per profile. `notify()` returns whether delivery succeeded; the dedupe flag is set **only on success** (a Discord outage retries next run), and when a threshold fires the flags for all larger thresholds are set too (implied), so no stale follow-up alerts.
 
 ---
 
 ## 7. Auth gate (proxy)
 
-`proxy.ts` (Next.js 16 replaces the `middleware.ts` convention with `proxy`) checks the signed session cookie and protects: `/`, `/login` (allow GET form), `/api/login`, `/api/callback`.
+`proxy.ts` (Next.js 16 replaces the `middleware.ts` convention with `proxy`) is **fail-closed**: an inverted matcher protects every route *except* `api/token`, `api/check`, and static assets (`_next/static`, `_next/image`, `favicon.ico`, `robots.txt`, `.svg/.png/.ico`), so any new route is session-gated by default. It verifies the signed session cookie's **signature + age only** (Edge, storage-free); `/login` and `/robots.txt` skip the check so the login form renders unauthenticated.
 **Excluded:** `/api/token` (bearer secret) and `/api/check` (cron secret).
-Also adds `X-Robots-Tag: noindex, nofollow` to all responses.
+The server-side **generation check** (revocation) runs Node-side at the top of `/`, `/api/login`, and `/api/callback`. Also adds `X-Robots-Tag: noindex, nofollow` to all responses.
 
 ---
 

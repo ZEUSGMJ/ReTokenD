@@ -112,7 +112,9 @@ The dashboard lists one card per profile. `default` is created automatically —
 existing single-token installs migrate into it on first load with no manual
 step. Add more with **Add profile**, then **Re-authorize** each to grant it a
 Spotify login. Cards show status, account, countdown, dates, and scopes, and let
-you re-authorize, save scopes, send a test alert, or disable the profile.
+you re-authorize, save scopes, send a test alert, or disable the profile. Saving an
+empty scope selection is valid — the next re-auth then requests no scopes (Spotify
+grants only its public defaults).
 
 ## Consumer projects
 
@@ -144,8 +146,12 @@ sends Discord alerts on threshold crossings or re-auth. Trigger it daily via:
   entered in the dashboard are stored in Redis AES-256-GCM encrypted (key from
   `CREDENTIALS_SECRET`, falling back to `SESSION_SECRET`).
 - `/api/token` is bearer-gated and returns only an access token.
-- Human-facing routes are gated by a signed, httpOnly, secure session cookie.
-- Login is rate limited: 10 failed attempts per 15 minutes per IP.
+- Human-facing routes are gated by a signed, httpOnly, secure session cookie, with a
+  fail-closed proxy matcher (new routes are session-gated by default).
+- Logging out revokes **every** outstanding session cookie server-side (a generation
+  counter embedded in the cookie is bumped), not just the current browser's cookie.
+- Login is rate limited atomically: 10 failed attempts / 15 min per IP, plus a global
+  50 / 15 min fallback so a spoofed `X-Forwarded-For` can't buy unlimited guesses.
 - Constant-time comparisons for bearer/session checks.
 - Hidden from search engines via `robots.ts`, `noindex` metadata, and an
   `X-Robots-Tag` header.
