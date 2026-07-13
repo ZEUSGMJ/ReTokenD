@@ -153,6 +153,14 @@ It can be triggered with:
 - Uptime Kuma
 - Any scheduler capable of sending an authenticated HTTP request
 
+## Website
+
+`site/` contains the public landing page which is a standalone Next.js app, developed and deployed independently of ReTokenD itself (`cd site && pnpm install --ignore-workspace && pnpm dev`, served on port 3001). The `--ignore-workspace` flag is required: without it pnpm attaches to the repo-root workspace and silently installs nothing.
+
+It deploys as a separate Vercel project with Root Directory set to `site`. Optionally set the project's Ignored Build Step to `git diff --quiet HEAD^ HEAD -- .` so it only redeploys when `site/` changes.
+
+Unlike the app, the landing page is public and indexable.
+
 ## Security
 
 - Refresh tokens stay in Redis and are never exposed through the API.
