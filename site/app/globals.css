@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "Cascadia Mono", monospace;
+}
+
+/* Deep black-green base, emerald→teal→cyan gradient accents. */
+@theme {
+  --color-background: #040606;
+  --color-foreground: #eaf1ee;
+  --color-muted: #94a19b;
+  --color-faint: #566661;
+  --color-accent: #10b981;
+  --color-accent-bright: #34d399;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5.5rem;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  overflow-x: hidden;
+}
+
+::selection {
+  background: rgba(16, 185, 129, 0.35);
+}
+
+/* Gradient headline / number treatment. */
+.text-gradient {
+  background: linear-gradient(100deg, #34d399 0%, #2dd4bf 55%, #22d3ee 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Glass panel. */
+.glass {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.055),
+    rgba(255, 255, 255, 0.02)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Faint blueprint grid, faded out toward the bottom. */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 54px 54px;
+  -webkit-mask-image: radial-gradient(
+    ellipse 90% 65% at 50% 0%,
+    black 30%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    ellipse 90% 65% at 50% 0%,
+    black 30%,
+    transparent 100%
+  );
+}
+
+@keyframes marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee 36s linear infinite;
+}
