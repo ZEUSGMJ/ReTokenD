@@ -8,9 +8,14 @@ export interface StorageAdapter {
   del(...keys: string[]): Promise<void>;
   /** Atomic INCR; sets the expiry window only when the key is newly created. */
   incr(key: string, windowSeconds: number): Promise<number>;
-  /** SET key value NX EX ttl — returns true if the lock was acquired. */
-  acquireLock(key: string, ttlSeconds: number): Promise<boolean>;
+  /** SET key owner NX EX ttl — returns true if the lock was acquired. */
+  acquireLock(key: string, owner: string, ttlSeconds: number): Promise<boolean>;
+  /** Deletes the lock only while its owner value still matches. */
+  releaseLock(key: string, owner: string): Promise<boolean>;
 }
+
+export const RELEASE_LOCK_SCRIPT =
+  'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end';
 
 export function encode(value: unknown): string {
   return JSON.stringify(value);

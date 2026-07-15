@@ -32,7 +32,8 @@ export const storage: StorageAdapter = {
   setWithTTL: (key, value, ttlSeconds) => getAdapter().setWithTTL(key, value, ttlSeconds),
   del: (...keys) => getAdapter().del(...keys),
   incr: (key, windowSeconds) => getAdapter().incr(key, windowSeconds),
-  acquireLock: (key, ttlSeconds) => getAdapter().acquireLock(key, ttlSeconds),
+  acquireLock: (key, owner, ttlSeconds) => getAdapter().acquireLock(key, owner, ttlSeconds),
+  releaseLock: (key, owner) => getAdapter().releaseLock(key, owner),
 };
 
 export type { StorageAdapter } from "@/lib/storage/types";

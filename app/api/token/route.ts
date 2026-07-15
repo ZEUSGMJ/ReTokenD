@@ -71,7 +71,8 @@ export async function GET(request: NextRequest) {
   }
 
   // single-flight refresh; losers poll the cache, then refresh anyway as a fallback
-  const gotLock = await storage.acquireLock(keys.refreshLock, 10);
+  const lockOwner = crypto.randomUUID();
+  const gotLock = await storage.acquireLock(keys.refreshLock, lockOwner, 10);
 
   let effectiveRefreshToken = refreshToken;
 
@@ -131,7 +132,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ access_token, expires_at: expiresAt, profile });
   } finally {
     if (gotLock) {
-      await storage.del(keys.refreshLock);
+      await storage.releaseLock(keys.refreshLock, lockOwner);
     }
   }
 }
