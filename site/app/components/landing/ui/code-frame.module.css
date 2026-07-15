@@ -1,0 +1,202 @@
+.frame {
+  min-width: 0;
+  overflow: clip;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-card);
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+}
+
+.header {
+  display: flex;
+  min-height: 3.5rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding-inline: var(--spacing-md) var(--spacing-sm);
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.languageIcon {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  color: var(--color-accent);
+  stroke-width: 1.75;
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copyButton {
+  display: inline-flex;
+  min-width: 5.75rem;
+  min-height: 2.75rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  padding-inline: var(--spacing-sm);
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-card) - var(--spacing-xs));
+  background: transparent;
+  color: var(--color-ink-2);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-micro) var(--ease-out),
+    color var(--dur-micro) var(--ease-out),
+    transform var(--dur-micro) var(--ease-out);
+}
+
+.copyButton:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.copyButton:active {
+  transform: translateY(1px);
+}
+
+.copyButton:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.copyButton[data-state="copied"] {
+  color: var(--color-accent);
+}
+
+.copyButton[data-state="error"] {
+  color: var(--color-code-error);
+}
+
+.copyIcon {
+  width: 0.9375rem;
+  height: 0.9375rem;
+  flex: none;
+  stroke-width: 1.8;
+}
+
+.copyIconLoading {
+  animation: copy-spin 0.85s linear infinite;
+}
+
+.copyLabel {
+  text-align: start;
+}
+
+.codeRegion {
+  min-width: 0;
+  --shiki-foreground: var(--color-ink);
+  --shiki-background: transparent;
+  --shiki-token-constant: var(--color-code-constant);
+  --shiki-token-string: var(--color-code-string);
+  --shiki-token-comment: var(--color-code-comment);
+  --shiki-token-keyword: var(--color-code-keyword);
+  --shiki-token-parameter: var(--color-code-parameter);
+  --shiki-token-function: var(--color-code-function);
+  --shiki-token-string-expression: var(--color-code-string);
+  --shiki-token-punctuation: var(--color-code-punctuation);
+  --shiki-token-link: var(--color-code-link);
+}
+
+.codeRegion :global(.shiki) {
+  max-width: 100%;
+  margin: 0;
+  overflow-x: auto;
+  padding: var(--spacing-md) var(--spacing-lg) var(--spacing-lg);
+  background: transparent !important;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-variant-ligatures: contextual;
+  line-height: 1.75;
+  tab-size: 2;
+}
+
+.codeRegion :global(.shiki:focus-visible) {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -3px;
+}
+
+.noteRegion {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-lg) var(--spacing-md);
+  border-top: 1px solid var(--color-rule);
+  background: var(--color-paper-3);
+  color: var(--color-ink-2);
+}
+
+.noteIcon {
+  width: 0.9375rem;
+  height: 0.9375rem;
+  margin-top: var(--spacing-2xs);
+  color: var(--color-accent);
+  stroke-width: 1.8;
+}
+
+.notes {
+  display: grid;
+  min-width: 0;
+  gap: var(--spacing-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .copyButton:hover:not(:disabled) {
+    background: var(--color-paper-3);
+    color: var(--color-ink);
+  }
+}
+
+@media (min-width: 40rem) {
+  .header {
+    padding-inline-start: var(--spacing-lg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copyButton {
+    transition: none;
+  }
+
+  .copyButton:active {
+    transform: none;
+  }
+
+  .copyIconLoading {
+    animation: none;
+  }
+}
+
+@keyframes copy-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
