@@ -1,27 +1,28 @@
-# ReTokenD — project guide
+# ReTokenD project guide
 
-**ReTokenD** is a personal, private, password-gated Next.js app that owns Spotify refresh tokens for one or more accounts ("profiles"), hands short-lived access tokens to my other projects, shows a countdown to each token's 6-month expiry, and lets me re-authorize with one click.
+ReTokenD is a private, single-admin Spotify token manager. It stores refresh tokens for one or more profiles, gives trusted projects short-lived access tokens, tracks each six-month authorization window, and centralizes reauthorization.
 
 ## Commands
 
-- `pnpm dev` — local dev server
-- `pnpm build` — production build
-- `pnpm lint` — eslint
-- `pnpm typecheck` — `tsc --noEmit`
+- `pnpm dev` — start the local development server
+- `pnpm build` — create a production build
+- `pnpm lint` — run ESLint
+- `pnpm typecheck` — run TypeScript without emitting files
 
-## Hard constraints (do not deviate without asking)
+## Non-negotiable rules
 
-- **Secrets only in env / Redis — never in code or committed files.**
-- The `/api/token` endpoint must return **only** an access token, **never** the refresh token.
-- The `issued_at` timestamp (countdown source) is reset **only** on full re-authorization via `/api/callback`, **never** on a normal token refresh — Spotify does not extend the 6-month window on refresh.
-- On `invalid_grant` from Spotify: **do not retry**; flag for re-auth.
-- The app must be **hidden from search engines** and **password-gated** for all human-facing routes.
+- Keep secrets in environment variables or Redis. Never hardcode or commit them.
+- `/api/token` may return an access token, but never a refresh token.
+- Set `issued_at` only after a full authorization succeeds in `/api/callback`. A normal token refresh must never change it because Spotify does not extend the six-month lifetime on refresh.
+- When Spotify returns `invalid_grant`, do not retry. Mark the profile as requiring reauthorization and return `409`.
+- Keep every human-facing route password-gated and hidden from search engines.
+- Use the existing authentication, storage, profile, lifecycle, and notification helpers instead of creating parallel implementations.
 
-## Where to look
+## Documentation map
 
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — how the app is put together (layout, storage abstraction, profiles, request flows, secrets model, deployment modes).
-- **[README.md](README.md)** — setup, env vars, deployment (Docker or Vercel), consumer usage.
+- [README.md](README.md) — setup, deployment, configuration, and API usage
+- [ARCHITECTURE.md](ARCHITECTURE.md) — system design, trust boundaries, storage, profiles, and request flows
+- [BUILD_SPEC.md](BUILD_SPEC.md) — as-built behavior and acceptance criteria
+- [AGENTS.md](AGENTS.md) — contributor workflow, project conventions, and verification
 
-## Context
-
-Spotify refresh tokens expire 6 months after authorization starting July 20, 2026 (and refreshing does NOT extend that window). ReTokenD centralizes the token(s) so re-auth is a single click that heals all consuming projects at once, instead of editing the token in multiple project envs.
+Spotify introduced a six-month lifetime for refresh tokens in 2026. Refreshing an access token does not restart that clock, so ReTokenD records the original authorization time and provides one place to reauthorize every consumer of a profile.

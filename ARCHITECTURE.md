@@ -1,158 +1,177 @@
-# ReTokenD — Architecture
+# ReTokenD architecture
 
-How ReTokenD is put together and why. For setup and usage, see [README.md](README.md); for the original requirements, see [BUILD_SPEC.md](BUILD_SPEC.md).
+This document explains how ReTokenD is put together and why its boundaries exist. See [README.md](README.md) for setup and operation, and [BUILD_SPEC.md](BUILD_SPEC.md) for the as-built behavioral contract.
 
-## The problem it solves
+## The problem
 
-Spotify refresh tokens expire 6 months after authorization, and refreshing does **not** extend that window. Instead of pasting a new refresh token into every consuming project twice a year, ReTokenD owns the refresh token(s) centrally: consumers ask it for short-lived access tokens, and when the 6-month window closes, one click on the dashboard re-authorizes and heals every consumer at once.
+Spotify refresh tokens have a six-month lifetime measured from the user's authorization. Exchanging one for a new access token does not extend that lifetime. Without a central service, every project using the same authorization would need a replacement refresh token at the same time.
 
-## System overview
+ReTokenD owns that long-lived credential. Consumer projects ask ReTokenD for short-lived access tokens, and the administrator reauthorizes each Spotify profile from one dashboard when its six-month window ends.
 
-```
-┌─────────────┐   Bearer RETOKEND_SECRET  ┌──────────────────────────┐
-│ Consumer    │ ─────────────────────────▶│  /api/token              │
-│ projects    │ ◀───── access token ───── │  (never refresh token)   │
-└─────────────┘                           │                          │
-                                          │        ReTokenD          │
-┌─────────────┐   session cookie          │  ┌────────────────────┐  │      ┌─────────┐
-│ You         │ ─────────────────────────▶│  │ Dashboard (/)      │  │◀────▶│  Redis  │
-│ (browser)   │                           │  │ /api/login         │──┼──┐   │ or      │
-└─────────────┘                           │  │ /api/callback      │  │  │   │ Upstash │
-                                          │  └────────────────────┘  │  │   └─────────┘
-┌─────────────┐   Bearer CRON_SECRET      │  ┌────────────────────┐  │  │
-│ Scheduler   │ ─────────────────────────▶│  │ /api/check (cron)  │  │  ▼
-│ (Vercel/ext)│                           │  └────────────────────┘  │ Spotify OAuth
-└─────────────┘                           └──────────┬───────────────┘ (accounts.spotify.com)
-                                                     ▼
-                                             Discord webhook (alerts)
+## System at a glance
+
+```text
+Consumer projects ── RETOKEND_SECRET ──▶ /api/token ──▶ Spotify token API
+       ▲                                     │
+       └──────── short-lived access token ───┤
+                                             ▼
+Admin browser ── signed session ───────▶ ReTokenD ◀──▶ Redis or Upstash
+                                             │
+Scheduler ───── CRON_SECRET ───────────▶ /api/check ──▶ Discord webhook
 ```
 
-Three independent auth perimeters, three audiences:
+The service has three separate audiences and authentication boundaries:
 
-| Audience | Routes | Auth |
-|---|---|---|
-| Consumer projects | `/api/token` | `Authorization: Bearer RETOKEND_SECRET` |
-| Cron scheduler | `/api/check` | `Authorization: Bearer CRON_SECRET` |
-| Human admin | `/`, `/login`, `/api/login`, `/api/callback` | Signed session cookie (password login, rate-limited) |
+| Audience | Entry points | Authentication |
+| --- | --- | --- |
+| Consumer projects | `/api/token` | `Authorization: Bearer <RETOKEND_SECRET>` |
+| Scheduler | `/api/check` | `Authorization: Bearer <CRON_SECRET>` |
+| Human administrator | Dashboard, login, and OAuth routes | Signed session cookie |
 
-## Layout
+The refresh token never crosses the service boundary.
 
-```
-proxy.ts                  Middleware (Next 16 "proxy" convention). Edge runtime.
-                          Fail-closed matcher: gates everything except the bearer APIs
-                          and static assets behind the session cookie; adds X-Robots-Tag.
-app/
-  page.tsx                Dashboard: one card per profile (server component, force-dynamic).
-  login/page.tsx          Password form + `login` server action (rate-limited).
-  actions.ts              Server actions: scopes, credentials, enable/disable, create/delete
-                          profile, test notification, logout.
-  api/login/route.ts      Starts OAuth: sets signed state cookie, redirects to Spotify.
-  api/callback/route.ts   Finishes OAuth: verifies state, exchanges code, stores tokens.
-  api/token/route.ts      Hands access tokens to consumers (cache → refresh, single-flight).
-  api/check/route.ts      Cron: expiry-threshold + re-auth Discord alerts per profile.
-  components/             Dashboard UI (ProfileCard, Countdown, forms). components/ui/ is shadcn.
-lib/
-  storage/                Backend-agnostic Redis abstraction (see below).
-  keys.ts                 Pure string logic: per-profile Redis key factory, profile-id rules.
-  profiles.ts             Stateful profile layer: registry, enabled flags, legacy migration.
-  spotify.ts              Spotify OAuth calls, scope catalog, per-profile credential resolution.
-  session.ts              Edge-safe signed-cookie helpers (Web Crypto HMAC). No Node APIs.
-  session-server.ts       Node-only: session generation (server-side revocation) helpers.
-  lifecycle.ts            Shared token countdown/status math (expiresAt, daysLeft, status).
-  auth.ts                 Node-only: constant-time compares, bearer check, SESSION_SECRET guard.
-  crypto.ts               Node-only: AES-256-GCM for client secrets stored at rest.
-  notify.ts               Discord webhook (fails soft — never throws).
-  utils.ts                shadcn `cn()` class-merge helper.
+## Code map
+
+```text
+proxy.ts                     Fail-closed request gate and X-Robots-Tag header
+app/page.tsx                 Dynamic dashboard server component
+app/login/page.tsx           Password form and rate-limited login action
+app/actions.ts               Profile, scope, credential, notification, and session actions
+app/api/login/route.ts       Starts Spotify authorization
+app/api/callback/route.ts    Completes authorization and stores the refresh token
+app/api/token/route.ts       Serves cached or freshly obtained access tokens
+app/api/check/route.ts       Runs expiry and reauthorization checks
+app/components/              Dashboard components and forms
+lib/storage/                 Redis and Upstash adapters
+lib/keys.ts                  Redis key definitions and profile-id rules
+lib/profiles.ts              Profile registry, enabled state, and legacy migration
+lib/spotify.ts               Spotify OAuth, scopes, and credential resolution
+lib/lifecycle.ts             Six-month expiry and display-status calculations
+lib/session.ts               Storage-free Web Crypto cookie signing and verification
+lib/session-server.ts        Redis-backed session generation and revocation
+lib/auth.ts                  Constant-time password and bearer helpers
+lib/crypto.ts                AES-256-GCM for stored client secrets
+lib/notify.ts                Discord notification delivery and embed construction
 ```
 
-## The Edge / Node runtime split
+## Runtime boundaries
 
-`proxy.ts` (middleware) may run on the Edge runtime (on Vercel), so everything it
-imports must avoid Node-only APIs:
+Next.js 16 runs `proxy.ts` on Node.js, but the proxy intentionally remains storage-free. It verifies only a session cookie's signature and age, which keeps request interception fast and avoids putting a Redis call in front of every route.
 
-- **`lib/session.ts`** — Edge-safe. Signs/verifies cookies with `crypto.subtle` (Web Crypto HMAC-SHA256). Imported by the proxy *and* by Node routes.
-- **`lib/auth.ts`, `lib/crypto.ts`, `lib/session-server.ts`** — Node-only (`node:crypto` / storage). Imported only by route handlers, server actions, and pages, which all declare `runtime = "nodejs"` or run in the Node server anyway.
+`lib/session.ts` uses Web Crypto HMAC-SHA256 and can be shared by the proxy and server routes. `lib/auth.ts`, `lib/crypto.ts`, and `lib/session-server.ts` use Node APIs or storage and belong only in server components, actions, and Node route handlers. Do not import them into `lib/session.ts`.
 
-Do not import `lib/auth.ts`, `lib/crypto.ts`, or `lib/session-server.ts` into `proxy.ts` or `lib/session.ts`.
+The Node-dependent route handlers explicitly declare `runtime = "nodejs"`. The dashboard is force-dynamic because it renders current storage state on every request.
 
-## Storage abstraction
+## Storage
 
-Everything reads/writes through `storage` ([lib/storage/index.ts](lib/storage/index.ts)) — a small `StorageAdapter` interface (`get/set/setWithTTL/del/incr/acquireLock`). `incr(key, windowSeconds)` is an atomic counter (INCR, with the expiry window set only when the key is newly created) used by the login rate limiter. Two adapters:
+All persistence goes through `storage` from [lib/storage/index.ts](lib/storage/index.ts). The `StorageAdapter` interface provides `get`, `set`, `setWithTTL`, `del`, `incr`, `acquireLock`, and `releaseLock`.
 
-1. **node-redis** ([lib/storage/node-redis.ts](lib/storage/node-redis.ts)) — chosen when `REDIS_URL` is set. One persistent TCP connection, cached on `globalThis` so dev hot-reload doesn't leak clients. For long-lived servers (Docker, VPS).
-2. **Upstash REST** ([lib/storage/upstash.ts](lib/storage/upstash.ts)) — chosen when `KV_REST_API_URL`/`KV_REST_API_TOKEN` are set. Stateless HTTPS per call. For serverless (Vercel).
+Adapter selection happens on first use rather than at import time:
 
-Both JSON-encode values identically (`encode`/`decode` in [lib/storage/types.ts](lib/storage/types.ts)), so the on-wire format is backend-independent. Adapter selection is lazy (first use, not import time) so `next build` — which has no secrets — never trips the "no backend configured" error.
+1. `REDIS_URL` selects the node-redis adapter and a persistent TCP connection.
+2. Otherwise, `KV_REST_API_URL` with `KV_REST_API_TOKEN` selects the stateless Upstash REST adapter.
+3. Without either configuration, storage throws a configuration error.
 
-## Profiles
+Lazy selection lets `next build` run without live secrets. Both adapters use the same JSON encoding from `lib/storage/types.ts`, so callers see identical values. Development Redis connections are cached on `globalThis` to survive hot reloads.
 
-A **profile** is one independent Spotify authorization (`default`, `portfolio`, …). All state for a profile lives under the Redis prefix `spotify:<profile>:` — the full key list is the `keysFor()` factory in [lib/keys.ts](lib/keys.ts). The important ones:
+`incr(key, windowSeconds)` is atomic and sets the expiry only when the key is created. The login rate limiter depends on that fixed window. Locks contain a unique owner, and release is an atomic compare-and-delete so one request cannot release another request's lock.
 
-| Key | Meaning |
-|---|---|
-| `refresh_token` | The long-lived Spotify refresh token. Never leaves the server. |
-| `refresh_token:issued_at` | Start of the 6-month window. **Reset only on full re-auth** (`/api/callback`), never on refresh — Spotify doesn't extend the window on refresh. Drives the countdown. |
-| `access_token` | Cached token as JSON `{access_token, expires_at}`, TTL = `expires_in − 60s` (min 60s). `expires_at` (epoch ms) is authoritative; a value at/after it is treated as a miss. |
-| `reauth_required` | Set when Spotify answers `invalid_grant`. Blocks further refresh attempts. |
-| `refresh_lock` | Single-flight lock (`SET NX EX`) around the Spotify refresh call. |
-| `scopes` | Saved scope selection (applies on next re-auth). |
-| `client_id` / `client_secret_enc` | Optional per-profile Spotify app; secret AES-encrypted. |
-| `enabled` | `"0"` disables the profile (skipped by `/api/token` and cron). |
-| `notified:<days>` / `notified:reauth` | Alert dedupe flags, cleared on re-auth. |
+## Profiles and Redis state
 
-Two non-profile keys: `spotify:profiles` (the registry, above) and `session:generation` — a monotonic counter embedded in every session cookie; `logout()` bumps it to revoke all outstanding cookies server-side (see [Admin session](#admin-session)).
+A profile represents one Spotify authorization. All profile state uses the prefix `spotify:<profile>:`. `keysFor()` in [lib/keys.ts](lib/keys.ts) is the only place that constructs these names.
 
-The registry (`spotify:profiles`, a JSON array) is the source of truth for which profiles exist. [lib/profiles.ts](lib/profiles.ts) guards registry read-modify-writes with an **in-process promise-chain mutex** (fine for a single server; on serverless each instance has its own chain — acceptable for a single-admin app). On first use it migrates legacy pre-profile keys (`spotify:refresh_token`, …) into the `default` profile, so old installs heal themselves.
+| Suffix | Purpose |
+| --- | --- |
+| `refresh_token` | Long-lived Spotify credential; never returned to consumers |
+| `refresh_token:issued_at` | Start of the six-month window; written only by `/api/callback` |
+| `access_token` | Cached `{access_token, expires_at}` with a storage TTL |
+| `reauth_required` | Stops refresh attempts after `invalid_grant` |
+| `last_refresh` | Time of the most recent successful access-token refresh |
+| `scopes` | Saved scope array; an empty array is a valid selection |
+| `refresh_lock` | Owner-tagged single-flight lock |
+| `enabled` | A stored `"0"` disables the profile; absence means enabled |
+| `account_id`, `display_name` | Best-effort Spotify account details |
+| `client_id`, `client_secret_enc` | Optional profile-specific Spotify app credentials |
+| `notified:reauth`, `notified:<days>` | Successful-notification markers |
 
-Per-profile Spotify credentials resolve in this order ([lib/spotify.ts](lib/spotify.ts) `credentialsFor`): dashboard-entered creds in Redis (secret decrypted) → `SPOTIFY_CLIENT_ID_<PROFILE>` env pair → global `SPOTIFY_CLIENT_ID` env pair. Stored and env creds are used as coherent pairs, never mixed. On the dashboard, the `default` profile's **Spotify app** panel is hidden while env credentials cover it and no custom app is stored (`hasEnvCredentials` in lib/spotify.ts) — it's always shown on other profiles.
+The cached access token carries its own `expires_at` in epoch milliseconds. That timestamp is authoritative even if a backend returns a stale value. Its storage TTL is `expires_in - 60` seconds, with a minimum of 60 seconds.
+
+Two keys sit outside the profile namespace:
+
+- `spotify:profiles` is the JSON registry and the source of truth for profile existence.
+- `session:generation` is a monotonic value embedded in session cookies for server-side revocation.
+
+`lib/profiles.ts` protects registry read-modify-write operations with an in-process promise-chain mutex. This is sufficient for the single-admin design. Separate serverless instances do not share the mutex, so concurrent profile mutations are intentionally outside the product's expected use.
+
+On first access, the profile layer migrates the older unscoped `spotify:*` token keys into `default`. Those legacy keys are migration input only and are never written again.
+
+## Spotify credentials and scopes
+
+Credentials are resolved as complete id-and-secret pairs in this order:
+
+1. Values saved from the dashboard, with the secret decrypted from Redis.
+2. `SPOTIFY_CLIENT_ID_<PROFILE>` and `SPOTIFY_CLIENT_SECRET_<PROFILE>`.
+3. The global `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`.
+
+A pair is never assembled from different sources. The default profile hides its Spotify app form while environment credentials cover it and it has no stored override; other profiles keep the form visible.
+
+`getConfiguredScopes()` returns `DEFAULT_SCOPES` only when no scope array is stored. A saved empty array deliberately requests no optional scopes. Saved changes take effect during the next authorization because scopes are granted at Spotify's authorize step.
 
 ## Request flows
 
-### Consumer fetches a token — `GET /api/token?profile=x`
+### Consumer requests an access token
 
-1. Bearer check (`RETOKEND_SECRET`, constant-time) → 401.
-2. Valid id → 400. Then the registry, `enabled` flag, and cached token are read in parallel (`Promise.all`); the response branches to preserve ordering: registered → 404, enabled → 403.
-3. **Cache hit**: the cached `{access_token, expires_at}` blob exists and hasn't expired → return it (single `get`, no TTL round trip; `expires_at` is authoritative).
-4. No refresh token stored, **or** `reauth_required` flag set → `409 { error: "reauth_required" }`. The flag means Spotify said `invalid_grant`; per spec ReTokenD never retries until a human re-authorizes.
-5. **Single-flight refresh**: try `refresh_lock` (`SET NX EX 10`). Losers poll the cache ~2s (4 × 500ms) and return the winner's token; if the winner stalls, a loser **re-reads `refresh_token` and `reauth_required`** (409 if now flagged) before falling through to a fallback refresh with the fresh token (safety valve).
-6. Call Spotify's refresh endpoint. On success: cache the access token as `{access_token, expires_at}` (TTL `expires_in − 60`), record `last_refresh`, clear a stale `reauth_required`, and if Spotify rotated the refresh token, store the new one — **only while holding the lock** (a loser must not clobber the winner's rotation) and **without touching `issued_at`**. On `invalid_grant`: set `reauth_required`, return 409. Other errors: 502.
+`GET /api/token?profile=<id>` follows this sequence:
 
-The response never contains the refresh token.
+1. Compare the bearer secret in constant time. Reject failures with `401`.
+2. Validate the profile id, then read registry membership, enabled state, and the cached access token in parallel. Return `400`, `404`, or `403` in that order when applicable.
+3. Return an unexpired cached token immediately.
+4. If the refresh token is absent or `reauth_required` is set, return `409` without calling Spotify.
+5. Try to acquire the ten-second refresh lock. A losing request polls the cache four times at 500 ms intervals. If the winner does not publish a token, the loser rereads the refresh token and reauthorization flag before using the fallback refresh path.
+6. On success, cache the access token, set `last_refresh`, clear a stale reauthorization flag, and store a rotated refresh token if Spotify supplied one. Rotation happens only while holding the lock; `issued_at` is never changed.
+7. On `invalid_grant`, set `reauth_required` and return `409` without retrying. Map other Spotify failures to `502`.
 
-### Re-authorization — `/api/login` → Spotify → `/api/callback`
+The response contains `access_token`, `expires_at`, and `profile` only.
 
-1. `/api/login?profile=x` (session-gated by the proxy) creates a random `state`, wraps `{state, profile, iat}` in an HMAC-signed, httpOnly cookie (10-min max age), and redirects to Spotify's consent page with the profile's configured scopes.
-2. Spotify redirects back to `/api/callback?code&state`. The handler verifies the signed cookie (tamper-proof), matches `state`, and recovers the profile — the profile travels in the signed cookie, not the URL, so one registered redirect URI serves every profile.
-3. The code is exchanged for tokens using the profile's credentials. The response's `refresh_token` is validated present, then atomically: store it, **reset `issued_at` (the only place this happens)**, drop the cached access token, clear `reauth_required` and all notification-dedupe flags.
-4. Best-effort: fetch the Spotify account (id/display name) for the dashboard card, register the profile, redirect to `/`.
+### Administrator reauthorizes a profile
 
-### Daily cron — `GET /api/check`
+`/api/login?profile=<id>` generates a random OAuth state and stores the signed `{state, profile, iat}` payload in an HTTP-only cookie with a ten-minute lifetime. The profile travels in the signed cookie, allowing every profile to share one registered callback URL.
 
-Bearer-gated by `CRON_SECRET`. For each **enabled** profile: if `reauth_required`, send one Discord alert (deduped via `notified:reauth`); otherwise compare days-left against thresholds (ascending 1/7/14) and fire only the smallest not-yet-notified one per run. `notify()` returns whether delivery succeeded (2xx), and a dedupe flag is set **only on successful delivery** — a Discord outage retries on the next run. When a threshold fires, the flags for all larger thresholds are set too (they're implied), so a single run doesn't emit stale follow-ups. Dedupe flags are cleared on re-auth, so each incident alerts once. `notify()` fails soft — a Discord outage can't fail the cron.
+Spotify redirects to `/api/callback`. The handler verifies the cookie signature and age, compares the returned state, resolves the profile's credentials, and exchanges the authorization code.
 
-### Admin session
+A successful callback must contain a non-empty refresh token. ReTokenD stores that token first and then writes `issued_at`; this is the only flow allowed to start a new six-month window. After both writes succeed, it removes the cached access token, reauthorization flag, and notification markers. It then attempts to fetch Spotify account details, registers the profile, and redirects to the dashboard.
 
-`POST` login server action: an **atomic dual rate limit** (per-IP `login:fail:<ip>` at 10/15 min plus a global `login:fail:global` at 50/15 min, both via `storage.incr` so a spoofed `X-Forwarded-For` on a direct-exposed self-host can't buy unlimited guesses; both cleared/decayed on success/window), constant-time password compare against `ADMIN_PASSWORD`, then set an HMAC-signed `{iat, gen}` cookie (30-day max age) embedding the current `session:generation`.
+### Scheduler checks profile health
 
-**Auth is split across the Edge/Node boundary.** The proxy (Edge, storage-free) verifies only the cookie **signature + age** — cheap and matcher-driven, so it fail-closes on every route by default. The **generation check** (server-side revocation) needs storage, so it runs Node-side at the top of `/` (`app/page.tsx`), `/api/login`, and `/api/callback` via `isSessionCurrent()` ([lib/session-server.ts](lib/session-server.ts)), redirecting to `/login` when the cookie's `gen` no longer matches Redis. `logout()` bumps `session:generation` (revoking every outstanding cookie) then deletes the cookie. `/api/token` and `/api/check` have their own bearer auth and are excluded from the matcher. Server actions are protected because they POST to `/`, which the proxy covers.
+`GET /api/check` validates `CRON_SECRET` and visits every enabled profile. A `reauth_required` profile receives one deduplicated alert. Otherwise, the route evaluates the 1-, 7-, and 14-day thresholds from smallest to largest and sends at most one alert per profile per run.
 
-The proxy matcher is **inverted / fail-closed**: it protects everything except `api/token`, `api/check`, Next static assets (`_next/static`, `_next/image`, `favicon.ico`, `robots.txt`, and `.svg/.png/.ico` files), so any new route is session-gated by default. `/login` and `/robots.txt` skip the cookie check so the login form renders unauthenticated. `X-Robots-Tag: noindex, nofollow` is set on every response.
+`notify()` reports delivery success and never throws into the cron route. Deduplication markers are written only after Discord accepts the message, so a temporary outage is retried on the next run. When a threshold succeeds, larger implied thresholds are marked too. A successful reauthorization clears every marker.
 
-## Secrets model
+## Administrator sessions
 
-- **Env**: `ADMIN_PASSWORD`, `SESSION_SECRET` (cookie HMAC; `getSessionSecret()` refuses to run with it empty), `CREDENTIALS_SECRET` (optional, falls back to `SESSION_SECRET`), `RETOKEND_SECRET`, `CRON_SECRET`, global Spotify creds, `BASE_URL`, `DISCORD_WEBHOOK_URL`.
-- **Redis**: refresh/access tokens (plaintext — Redis is the trust boundary), and per-profile client secrets encrypted with AES-256-GCM ([lib/crypto.ts](lib/crypto.ts)); the key is derived from `CREDENTIALS_SECRET` (fallback `SESSION_SECRET`), so a Redis dump alone can't reveal them.
-- Nothing secret in code or committed files. The app is hidden from crawlers three ways: `robots.ts`, `noindex` metadata, and `X-Robots-Tag` headers from both `next.config.ts` and the proxy.
+The login action applies two atomic, fixed-window limits: 10 failures per client IP and 50 failures globally within 15 minutes. The global limit prevents an exposed self-hosted instance from relying entirely on a spoofable forwarded-IP header. Once either limit is reached, even a correct password is rejected until the window expires. An allowed successful login clears its per-IP counter.
 
-## Deployment modes
+After a constant-time password comparison, the action creates a signed 30-day `{iat, gen}` session cookie. The proxy checks its HMAC and age. The dashboard, OAuth start route, and OAuth callback also compare its generation with `session:generation` in Redis. Logout increments that value and deletes the browser cookie, invalidating every previously issued session.
 
-Same codebase, two shapes — chosen purely by env:
+The proxy matcher is fail-closed. Exact `/api/token` and `/api/check` requests bypass session verification because their handlers enforce independent bearer secrets. Similarly named paths remain protected. Static Next.js assets, favicon and image assets, `/robots.txt`, and the renderable `/login` page are excluded or allowed deliberately.
 
-| | Self-host (Docker/homelab) | Vercel |
-|---|---|---|
-| Server | `output: "standalone"` Node server (`server.js`) | Serverless functions |
-| Storage | `REDIS_URL` → node-redis (TCP) | Upstash REST |
-| Cron | External scheduler hits `/api/check` with the bearer | `vercel.json` cron (auto-sends `Bearer CRON_SECRET`) |
-| Middleware | Runs in the Node server process | Edge runtime |
+Every proxy response receives `X-Robots-Tag: noindex, nofollow`.
 
-`docker-compose.yml` bundles the app with a Redis 7 container (`appendonly` persistence on the `redis_data` named volume — token data survives rebuilds). The Dockerfile is a multi-stage build (base → deps → build → minimal runtime) running as a non-root user; only the standalone bundle, static assets, and `public/` ship in the final image.
+## Secrets and crawler protection
+
+Environment variables hold admin, bearer, signing, encryption, Spotify, storage, callback, cron, and Discord credentials. Redis stores Spotify tokens in plaintext because Redis is part of the trusted server boundary. Dashboard-entered Spotify client secrets are encrypted with AES-256-GCM using `CREDENTIALS_SECRET`, or `SESSION_SECRET` as a fallback, so a Redis dump alone does not expose them.
+
+The private application discourages indexing in three layers: `robots.ts`, no-index metadata, and `X-Robots-Tag` response headers. Authentication remains the actual content boundary.
+
+## Deployment shapes
+
+The same application supports two runtime shapes selected entirely by environment variables:
+
+| | Self-hosted | Vercel |
+| --- | --- | --- |
+| Application | Standalone Next.js Node server | Serverless functions |
+| Storage | Redis over TCP | Upstash REST |
+| Scheduler | External authenticated request | `vercel.json` cron |
+| Persistence | Redis append-only volume | Managed Upstash database |
+
+The Docker image uses a multi-stage build and runs the minimal standalone output as a non-root user. `docker-compose.yml` supplies Redis 7 with append-only persistence on the `redis_data` volume.

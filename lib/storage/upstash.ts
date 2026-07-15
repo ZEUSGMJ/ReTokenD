@@ -1,5 +1,10 @@
 import { Redis } from "@upstash/redis";
-import { decode, encode, type StorageAdapter } from "@/lib/storage/types";
+import {
+  decode,
+  encode,
+  RELEASE_LOCK_SCRIPT,
+  type StorageAdapter,
+} from "@/lib/storage/types";
 
 // Upstash REST adapter (serverless). Manual JSON encoding keeps the wire
 // format identical to the node-redis adapter.
@@ -25,9 +30,17 @@ export function createUpstashAdapter(url: string, token: string): StorageAdapter
       if (count === 1) await redis.expire(key, windowSeconds, "NX");
       return count;
     },
-    async acquireLock(key: string, ttlSeconds: number): Promise<boolean> {
-      const res = await redis.set(key, encode("1"), { nx: true, ex: ttlSeconds });
+    async acquireLock(key: string, owner: string, ttlSeconds: number): Promise<boolean> {
+      const res = await redis.set(key, encode(owner), { nx: true, ex: ttlSeconds });
       return res === "OK";
+    },
+    async releaseLock(key: string, owner: string): Promise<boolean> {
+      const result = await redis.eval<[string], number>(
+        RELEASE_LOCK_SCRIPT,
+        [key],
+        [encode(owner)]
+      );
+      return result === 1;
     },
   };
 }

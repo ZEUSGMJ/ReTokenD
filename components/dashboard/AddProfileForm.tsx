@@ -26,11 +26,12 @@ export function AddProfileForm() {
       </div>
       {state.error === "invalid_profile" ? (
         <p className="text-xs text-destructive">
-          Invalid profile id. Use lowercase letters, numbers, and hyphens (max 32 characters).
+          Profile IDs can only use lowercase letters, numbers, and hyphens, up to 32 characters.
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">
-          Lowercase letters, numbers, and hyphens. Authorize it with Spotify after creating.
+          Use lowercase letters, numbers, and hyphens. Connect the profile to Spotify after you
+          create it.
         </p>
       )}
     </form>

@@ -1,5 +1,10 @@
 import { createClient, type RedisClientType } from "redis";
-import { decode, encode, type StorageAdapter } from "@/lib/storage/types";
+import {
+  decode,
+  encode,
+  RELEASE_LOCK_SCRIPT,
+  type StorageAdapter,
+} from "@/lib/storage/types";
 
 // node-redis adapter (self-host). One lazy connection, cached on globalThis
 // to survive dev hot-reload. Never selected on serverless.
@@ -50,10 +55,18 @@ export function createNodeRedisAdapter(url: string): StorageAdapter {
       if (count === 1) await client.expire(key, windowSeconds, "NX");
       return count;
     },
-    async acquireLock(key: string, ttlSeconds: number): Promise<boolean> {
+    async acquireLock(key: string, owner: string, ttlSeconds: number): Promise<boolean> {
       const client = await getClient(url);
-      const res = await client.set(key, encode("1"), { NX: true, EX: ttlSeconds });
+      const res = await client.set(key, encode(owner), { NX: true, EX: ttlSeconds });
       return res === "OK";
+    },
+    async releaseLock(key: string, owner: string): Promise<boolean> {
+      const client = await getClient(url);
+      const result = await client.eval(RELEASE_LOCK_SCRIPT, {
+        keys: [key],
+        arguments: [encode(owner)],
+      });
+      return result === 1;
     },
   };
 }

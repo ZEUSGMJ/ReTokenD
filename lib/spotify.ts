@@ -104,14 +104,33 @@ function envSuffix(profile: string): string {
   return profile.toUpperCase().replace(/-/g, "_");
 }
 
-/** True when env provides a full credential pair for this profile (per-profile or global). */
-export function hasEnvCredentials(profile: string): boolean {
+export function resolveEnvCredentials(
+  profile: string,
+  env: Record<string, string | undefined> = process.env
+): { clientId: string; clientSecret: string } | null {
   const suffix = envSuffix(profile);
-  const perProfile =
-    Boolean(process.env[`SPOTIFY_CLIENT_ID_${suffix}`]) &&
-    Boolean(process.env[`SPOTIFY_CLIENT_SECRET_${suffix}`]);
-  const global = Boolean(process.env.SPOTIFY_CLIENT_ID) && Boolean(process.env.SPOTIFY_CLIENT_SECRET);
-  return perProfile || global;
+  const profileId = env[`SPOTIFY_CLIENT_ID_${suffix}`];
+  const profileSecret = env[`SPOTIFY_CLIENT_SECRET_${suffix}`];
+  if (profileId && profileSecret) return { clientId: profileId, clientSecret: profileSecret };
+
+  const globalId = env.SPOTIFY_CLIENT_ID;
+  const globalSecret = env.SPOTIFY_CLIENT_SECRET;
+  if (globalId && globalSecret) return { clientId: globalId, clientSecret: globalSecret };
+
+  if (profileId || profileSecret) {
+    throw new Error(`Incomplete Spotify credential pair for profile "${profile}"`);
+  }
+  if (globalId || globalSecret) throw new Error("Incomplete global Spotify credential pair");
+  return null;
+}
+
+/** True when env provides a coherent credential pair for this profile. */
+export function hasEnvCredentials(profile: string): boolean {
+  try {
+    return resolveEnvCredentials(profile) !== null;
+  } catch {
+    return false;
+  }
 }
 
 async function credentialsFor(
@@ -127,16 +146,13 @@ async function credentialsFor(
     return { clientId: storedId, clientSecret: decryptSecret(storedSecretEnc) };
   }
 
-  const suffix = envSuffix(profile);
-  const clientId = process.env[`SPOTIFY_CLIENT_ID_${suffix}`] ?? process.env.SPOTIFY_CLIENT_ID;
-  const clientSecret =
-    process.env[`SPOTIFY_CLIENT_SECRET_${suffix}`] ?? process.env.SPOTIFY_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
+  const envCredentials = resolveEnvCredentials(profile);
+  if (!envCredentials) {
     throw new Error(
       `Spotify credentials not set for profile "${profile}" (dashboard or SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET)`
     );
   }
-  return { clientId, clientSecret };
+  return envCredentials;
 }
 
 async function getBasicAuthHeader(profile: string): Promise<string> {

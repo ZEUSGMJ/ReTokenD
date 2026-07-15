@@ -44,6 +44,7 @@ export async function saveScopes(formData: FormData) {
 export async function testNotification(formData: FormData) {
   const profile = String(formData.get("profile") ?? DEFAULT_PROFILE);
   if (!isValidProfileId(profile)) return;
+  if (!(await profileExists(profile))) return;
 
   const keys = keysFor(profile);
   const [issuedAt, reauthRequired] = await Promise.all([
@@ -65,11 +66,11 @@ export async function testNotification(formData: FormData) {
   const statusLabel = STATUS_LABELS[status];
 
   const embed = buildStatusEmbed({
-    description: "Test Notification",
+    description: "Test notification",
     statusLabel,
     daysLeft,
     expiresAtIso,
-    footer: "Test from Dashboard",
+    footer: "Sent from the dashboard",
     profile,
   });
 
@@ -139,6 +140,7 @@ export async function saveProfileCredentials(
 export async function deleteProfile(formData: FormData) {
   const profile = String(formData.get("profile") ?? "");
   if (!isValidProfileId(profile) || profile === DEFAULT_PROFILE) return;
+  if (!(await profileExists(profile))) return;
   await removeProfile(profile);
   revalidatePath("/");
 }

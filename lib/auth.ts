@@ -1,4 +1,4 @@
-// node:crypto — not importable from proxy.ts / lib/session.ts (Edge runtime)
+// node:crypto — keep out of the Web Crypto-only session helper.
 
 import { timingSafeEqual } from "node:crypto";
 

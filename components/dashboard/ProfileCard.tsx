@@ -1,10 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Countdown } from "@/app/components/Countdown";
-import { StatusBadge, type TokenStatus } from "@/app/components/StatusBadge";
-import { ScopeSettings } from "@/app/components/ScopeSettings";
-import { ProfileCredentialsForm } from "@/app/components/ProfileCredentialsForm";
-import { DeleteProfileButton } from "@/app/components/DeleteProfileButton";
+import { Countdown } from "@/components/dashboard/Countdown";
+import { StatusBadge, type TokenStatus } from "@/components/dashboard/StatusBadge";
+import { ScopeSettings } from "@/components/dashboard/ScopeSettings";
+import { ProfileCredentialsForm } from "@/components/dashboard/ProfileCredentialsForm";
+import { DeleteProfileButton } from "@/components/dashboard/DeleteProfileButton";
 import { DEFAULT_PROFILE } from "@/lib/keys";
 import { SPOTIFY_SCOPE_CATALOG } from "@/lib/spotify";
 import { testNotification, toggleProfileEnabled } from "@/app/actions";
@@ -74,19 +74,21 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
 
       <CardContent className="flex flex-col gap-6">
         <div className="flex flex-col items-center gap-2 py-2">
-          {expiresAtIso ? (
-            <Countdown expiresAtIso={expiresAtIso} />
+          {issuedAt && expiresAtIso ? (
+            <Countdown issuedAtIso={issuedAt} expiresAtIso={expiresAtIso} status={status} />
           ) : (
-            <span className="font-mono text-3xl font-semibold">No token</span>
+            <>
+              <span className="font-mono text-3xl font-semibold">No token</span>
+              <p className="text-sm text-muted-foreground">until refresh token expires</p>
+            </>
           )}
-          <p className="text-sm text-muted-foreground">until refresh token expires</p>
           {showWarning && (
             <p className="mt-1 text-center text-sm font-medium text-destructive">
               {reauthRequired
                 ? "Spotify rejected the refresh token. Re-authorization is required."
                 : !issuedAt
                   ? "No refresh token on file. Re-authorize to get started."
-                  : "Token is expiring soon. Re-authorize to avoid an outage."}
+                  : "The refresh token expires soon. Re-authorize before it does."}
             </p>
           )}
         </div>
@@ -117,7 +119,7 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
           <form action={testNotification}>
             <input type="hidden" name="profile" value={profile} />
             <Button type="submit" variant="outline" size="sm">
-              Test Notification
+              Test notification
             </Button>
           </form>
           <form action={toggleProfileEnabled}>
