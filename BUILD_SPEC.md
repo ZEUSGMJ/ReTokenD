@@ -10,7 +10,7 @@ A password-gated Next.js (App Router) app, deployable on Vercel or self-hosted (
 
 ## 1. Why this exists
 
-Starting **July 20, 2026**, Spotify refresh tokens expire **6 months after the original authorization**, and **refreshing does NOT extend that window** (verified against Spotify's docs). On expiry the token endpoint returns `400 {"error":"invalid_grant"}` and the only fix is re-authorizing.
+Spotify refresh tokens expire **6 months after the original authorization** for apps created on or after **June 18, 2026**, and for existing apps from **July 20, 2026**. **Refreshing does NOT extend that window** (verified against Spotify's docs). On expiry the token endpoint returns `400 {"error":"invalid_grant"}` and the only fix is re-authorizing.
 
 I reuse Spotify refresh tokens across several projects. Without a central token service, consumers of a given token break simultaneously every 6 months and I'd have to paste a new token into every project's env. ReTokenD fixes that:
 
@@ -74,7 +74,7 @@ Every profile (`default`, `portfolio`, …) gets its own key set under `spotify:
 | `reauth_required` | "1" / flag | Set when a refresh returns `invalid_grant`. Cleared on successful re-auth. |
 | `last_refresh` | ISO 8601 string | Last successful access-token refresh time. Set on every `/api/token` success; displayed on dashboard. |
 | `scopes` | JSON array of strings | Admin-selected scope ids, e.g. `["user-top-read","user-read-currently-playing"]`. Persisted by the dashboard; applied on next re-auth. |
-| `refresh_lock` | "1" / flag | Short-lived (10s TTL) NX lock for single-flight refresh: only one `/api/token` call hits Spotify at a time; others poll the cache or fall back to refresh. |
+| `refresh_lock` | unique owner id | Short-lived (10s TTL) NX lock for single-flight refresh: only one `/api/token` call hits Spotify at a time; others poll the cache or fall back to refresh. Release uses atomic owner compare-and-delete. |
 | `enabled` | "0" / absent | "0" disables the profile; skipped by `/api/token` (403) and by the cron. Absent/anything else = enabled. |
 | `account_id` / `display_name` | string | Best-effort Spotify account metadata fetched on callback, shown on the profile card. |
 | `client_id` / `client_secret_enc` | string | Optional per-profile Spotify app credentials entered on the dashboard; secret is AES-256-GCM encrypted (`lib/crypto.ts`). |
@@ -112,7 +112,7 @@ user-read-recently-played
   - Headers: `Authorization: Basic base64(client_id:client_secret)` (profile's resolved credentials), `Content-Type: application/x-www-form-urlencoded`
   - Body: `grant_type=authorization_code`, `code`, `redirect_uri=${BASE_URL}/api/callback`
 - Validate the response includes a non-empty `refresh_token` string; if not, show an error page and make **no** writes (never reset `issued_at` without a token to store).
-- On success: store `spotify:<profile>:refresh_token`, set `spotify:<profile>:refresh_token:issued_at = now (ISO)` (**the only place this happens**), delete `access_token`, `reauth_required`, `notified:reauth`, and all `notified:*` threshold flags. Best-effort fetch the Spotify account (`/v1/me`) and store `account_id`/`display_name` for the dashboard card. Register the profile in `spotify:profiles`. Redirect to `/`.
+- On success: store `spotify:<profile>:refresh_token` first, then set `spotify:<profile>:refresh_token:issued_at = now (ISO)` (**the only place this happens**). After both writes succeed, delete `access_token`, `reauth_required`, `notified:reauth`, and all `notified:*` threshold flags. Best-effort fetch the Spotify account (`/v1/me`) and store `account_id`/`display_name` for the dashboard card. Register the profile in `spotify:profiles`. Redirect to `/`.
 - On error (missing code/state, invalid/expired state, exchange failure): show a clear error page.
 
 ### `GET /api/token?profile=x` — (bearer-gated, for consumer projects)
@@ -120,7 +120,7 @@ user-read-recently-played
 - Validate `profile` (defaults to `default`): invalid id → `400 invalid_profile`; not registered → `404 unknown_profile`; disabled → `403 profile_disabled`.
 - The registry, `enabled` flag, and cached token are read in parallel; the 404/403 branches preserve their ordering. If the cached `{access_token, expires_at}` blob is present and unexpired → return `{ access_token, expires_at, profile }` immediately.
 - If no refresh token stored, **or** `reauth_required` is set → `409 { error: "reauth_required", profile }` **without calling Spotify** (no retries after `invalid_grant` until re-auth clears the flag).
-- Else: acquire `refresh_lock` (10s NX lock). Losers poll the access-token cache (4 iterations × 500ms); if still nothing, a loser **re-reads `refresh_token` + `reauth_required`** (409 if now flagged/absent) before falling back to a normal refresh with the fresh token as a safety valve.
+- Else: acquire an owner-tagged `refresh_lock` (10s NX lock). Losers poll the access-token cache (4 iterations × 500ms); if still nothing, a loser **re-reads `refresh_token` + `reauth_required`** (409 if now flagged/absent) before falling back to a normal refresh with the fresh token as a safety valve. A holder releases only if its owner value still matches.
 - Winner: read `refresh_token` and refresh:
   - `POST https://accounts.spotify.com/api/token`, `Authorization: Basic base64(id:secret)`, body `grant_type=refresh_token`, `refresh_token`.
   - On `200`: cache `access_token` as `{access_token, expires_at}` (TTL `expires_in - 60`, min 60s), set `last_refresh = now`, clear `reauth_required`; if the response **includes a new `refresh_token`**, overwrite `refresh_token` **only while holding the lock** (a loser must not clobber the winner's rotation) but **DO NOT touch `issued_at`**. Return `{ access_token, expires_at, profile }`.
@@ -145,8 +145,7 @@ user-read-recently-played
 
 ## 7. Auth gate (proxy)
 
-`proxy.ts` (Next.js 16 replaces the `middleware.ts` convention with `proxy`) is **fail-closed**: an inverted matcher protects every route *except* `api/token`, `api/check`, and static assets (`_next/static`, `_next/image`, `favicon.ico`, `robots.txt`, `.svg/.png/.ico`), so any new route is session-gated by default. It verifies the signed session cookie's **signature + age only** (Edge, storage-free); `/login` and `/robots.txt` skip the check so the login form renders unauthenticated.
-**Excluded:** `/api/token` (bearer secret) and `/api/check` (cron secret).
+`proxy.ts` (Next.js 16 replaces the `middleware.ts` convention with `proxy`) is **fail-closed** on the Node.js runtime: its matcher covers dynamic routes, then exact `/api/token` and `/api/check` paths bypass the session check because they have independent bearer auth. Similarly prefixed paths such as `/api/token-admin` remain session-gated. It verifies the signed session cookie's **signature + age only** and stays storage-free; `/login` and `/robots.txt` skip the check so the login form renders unauthenticated.
 The server-side **generation check** (revocation) runs Node-side at the top of `/`, `/api/login`, and `/api/callback`. Also adds `X-Robots-Tag: noindex, nofollow` to all responses.
 
 ---

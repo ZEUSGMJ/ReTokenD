@@ -1,8 +1,8 @@
 # ReTokenD
 
-ReTokenD is a small service I built to manage Spotify OAuth tokens for my own projects.
+ReTokenD manages Spotify OAuth tokens for my projects from one self-hosted service.
 
-Spotify refresh tokens expire six months after they're authorized. I have several projects that use the Spotify API, and updating the refresh token in every project whenever one expired quickly became annoying. ReTokenD keeps the refresh token(s) in one place, hands out short-lived access tokens, tracks the expiry window, and lets me re-authorize once instead of updating every project individually.
+Spotify applies a six-month refresh-token lifetime to apps created on or after June 18, 2026 and to existing apps from July 20, 2026. I use the Spotify API in several projects, and I didn't want to update every project's refresh token by hand whenever one expired. ReTokenD stores those tokens centrally, issues short-lived access tokens, tracks each expiry window, and gives me one place to re-authorize.
 
 It can run on Docker with Redis or on Vercel with Upstash, and supports one or more Spotify accounts through independent profiles.
 
@@ -31,9 +31,9 @@ The storage backend is selected from the available environment variables:
 
 1. `REDIS_URL` → local / self-hosted Redis (`redis://localhost:6379`)
 2. `KV_REST_API_URL` + `KV_REST_API_TOKEN` → Upstash REST
-3. Otherwise the app throws an error on startup.
+3. Otherwise the app throws an error on its first storage access.
 
-The rest of the application always uses `lib/storage`, so it doesn't care which backend is active.
+All application storage goes through `lib/storage`, so the rest of the code doesn't need to know which backend is active.
 
 ## Running with Docker
 
@@ -42,7 +42,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-This starts the app on `http://localhost:3000` alongside a Redis container with `appendonly` persistence on a named volume (`redis_data`). Token data survives restarts and rebuilds. It is only removed if the volume itself is deleted (`docker compose down -v`).
+This starts the app on `http://localhost:3000` alongside a Redis container with `appendonly` persistence on a named volume (`redis_data`). Token data survives restarts and rebuilds. Deleting the volume with `docker compose down -v` removes it.
 
 > Set `BASE_URL` to the URL you'll actually use and register `<BASE_URL>/api/callback` in the Spotify Developer Dashboard. Spotify only allows plain HTTP for the `127.0.0.1` loopback, not `localhost`.
 
@@ -56,7 +56,7 @@ The cron defined in `vercel.json` (`0 9 * * *` → `/api/check`) is picked up au
 
 ## Other deployments
 
-The container should run anywhere Docker is supported, including Docker Compose, Coolify, Portainer, CasaOS, Unraid, TrueNAS SCALE, Railway, Fly.io, Render, or a Linux VPS.
+The container runs anywhere Docker is supported, including Docker Compose, Coolify, Portainer, CasaOS, Unraid, TrueNAS SCALE, Railway, Fly.io, Render, or a Linux VPS.
 
 Point `REDIS_URL` at a Redis instance and configure the required environment variables.
 
@@ -134,10 +134,12 @@ The refresh token is never returned.
 
 Possible responses:
 
+- `400` — Invalid profile id
 - `401` — Invalid bearer token
 - `403` — Profile disabled
 - `404` — Unknown profile
 - `409` — Re-authorization required
+- `502` — Spotify token service error
 
 ## Scheduled checks
 
@@ -155,7 +157,7 @@ It can be triggered with:
 
 ## Website
 
-`site/` contains the public landing page which is a standalone Next.js app, developed and deployed independently of ReTokenD itself (`cd site && pnpm install --ignore-workspace && pnpm dev`, served on port 3001). The `--ignore-workspace` flag is required: without it pnpm attaches to the repo-root workspace and silently installs nothing.
+`site/` contains the public landing page. It is a standalone Next.js app, developed and deployed separately from ReTokenD itself. Run it with `cd site && pnpm install --ignore-workspace && pnpm dev`; it uses port 3001. The `--ignore-workspace` flag is required because pnpm otherwise attaches to the repository workspace and installs nothing in `site/`.
 
 It deploys as a separate Vercel project with Root Directory set to `site`. Optionally set the project's Ignored Build Step to `git diff --quiet HEAD^ HEAD -- .` so it only redeploys when `site/` changes.
 

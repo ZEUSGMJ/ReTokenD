@@ -41,7 +41,7 @@ See `CLAUDE.md` for the problem statement and hard constraints, and `BUILD_SPEC.
 
 ### Storage
 - Directory: `lib/storage/` — `index.ts` selects the adapter lazily on first use (not at import time, so `next build` without secrets doesn't throw). Precedence: `REDIS_URL` → `node-redis.ts` adapter; else `KV_REST_API_URL` + `KV_REST_API_TOKEN` → `upstash.ts` (REST) adapter; else throw.
-- Both adapters implement the same `StorageAdapter` interface (`get/set/setWithTTL/del/exists/ttl/acquireLock`) and JSON-encode values identically, so callers never know which backend is live.
+- Both adapters implement the same `StorageAdapter` interface (`get/set/setWithTTL/del/incr/acquireLock/releaseLock`) and JSON-encode values identically, so callers never know which backend is live. Locks carry a unique owner and use compare-and-delete release.
 - Always import `storage` from `@/lib/storage`.
 
 ### Redis keys
@@ -58,7 +58,7 @@ See `CLAUDE.md` for the problem statement and hard constraints, and `BUILD_SPEC.
 - Takes `?profile=` (defaults to `default`). Validates the id (`400 invalid_profile`), that it's registered (`404 unknown_profile`), and that it's enabled (`403 profile_disabled`).
 - Cached-token fast path: returns immediately if an access token is cached.
 - Reauth fast path: if the `reauth_required` flag is set (or no refresh token stored), returns `409 { error: "reauth_required" }` **without calling Spotify** — no retries after `invalid_grant` until re-auth clears the flag.
-- Single-flight lock (`refresh_lock`, 10s TTL, NX) prevents concurrent Spotify hits. Losers poll the access-token cache 10× at 200ms intervals, then fall back to a normal refresh if it's still not cached.
+- Single-flight lock (`refresh_lock`, 10s TTL, NX) prevents concurrent Spotify hits. Losers poll the access-token cache 4× at 500ms intervals, then fall back to a normal refresh if it's still not cached.
 - On `200`: cache token (TTL `expires_in - 60`, min 60s), update `last_refresh`, clear `reauth_required`. Overwrite the refresh token **if** Spotify returns a new one (token rotation), but **never touch `issued_at`**.
 - On `invalid_grant`: set `reauth_required`, return `409`.
 
@@ -88,7 +88,7 @@ See `CLAUDE.md` for the problem statement and hard constraints, and `BUILD_SPEC.
 
 ## Testing locally
 
-1. **Spotify auth works:** Log in → Re-authorize → approve on Spotify → dashboard shows ~179 days (6 months from today) for the profile.
+1. **Spotify auth works:** Log in → Re-authorize → approve on Spotify → dashboard shows ~6 months (181–184 days, calendar-month math) for the profile.
 2. **Token endpoint works:** `curl -H "Authorization: Bearer $RETOKEND_SECRET" http://127.0.0.1:3000/api/token` → `{access_token, expires_at, profile}`.
 3. **Test notification:** Click **Test Notification** on a profile card → Discord message arrives with status/days-left/expiry.
 4. **Logout:** Click **Log out** → redirected to `/login`; visiting `/` without a session cookie redirects back to `/login`.
@@ -96,7 +96,7 @@ See `CLAUDE.md` for the problem statement and hard constraints, and `BUILD_SPEC.
 6. **Login rate limit:** 10 wrong-password submissions from the same IP within 15 minutes lock out further attempts (even a correct one) until the window expires; a successful login clears the counter.
 
 To fake token states without waiting 6 months, manually edit Redis (default profile shown; substitute `spotify:<profile>:*` for others):
-- Set `spotify:default:refresh_token:issued_at` to ~13.5 days ago → dashboard shows "Expiring soon", cron alerts at the 14-day threshold.
+- Set `spotify:default:refresh_token:issued_at` to ~5.5 months ago (6 months minus ~13.5 days) → dashboard shows "Expiring soon", cron alerts at the 14-day threshold.
 - Set `spotify:default:refresh_token` to garbage → `/api/token` returns `409 reauth_required` and sets the flag.
 - Clear `spotify:default:scopes` → next re-auth requests `DEFAULT_SCOPES`.
 
@@ -132,7 +132,7 @@ To fake token states without waiting 6 months, manually edit Redis (default prof
 ## Next.js 16 gotchas
 
 - `middleware.ts` is now `proxy.ts` (function name `proxy` instead of `middleware`).
-- Middleware runs on Edge (Web Crypto only); route handlers run on Node (full Node.js API).
+- `proxy.ts` runs on the Node.js runtime in Next.js 16; route handlers also use Node. `lib/session.ts` remains Web Crypto-only so its signed-cookie helpers stay portable.
 - `Date.now()` in a server component render triggers a lint warning if not in a one-off context (e.g., a `force-dynamic` server component is fine, but a Server Component rendered multiple times should not call `Date.now()` in the body).
 - `font variables` from `next/font/google` must be explicitly applied to `<html>` and wired in CSS — `--font-sans: var(--font-inter)` in the theme.
 

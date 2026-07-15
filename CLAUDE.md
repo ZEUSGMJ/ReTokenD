@@ -1,6 +1,6 @@
 # ReTokenD — project guide
 
-**ReTokenD** is a personal, private, password-gated Next.js app that owns Spotify refresh tokens for one or more accounts ("profiles"), hands short-lived access tokens to my other projects, shows a countdown to each token's 6-month expiry, and lets me re-authorize with one click.
+**ReTokenD** is a personal, private, password-gated Next.js app that owns Spotify refresh tokens for one or more accounts ("profiles"), hands short-lived access tokens to my other projects, shows a countdown to each token's 6-month expiry, and centralizes re-authorization in one dashboard flow.
 
 ## Commands
 
@@ -24,4 +24,4 @@
 
 ## Context
 
-Spotify refresh tokens expire 6 months after authorization starting July 20, 2026 (and refreshing does NOT extend that window). ReTokenD centralizes the token(s) so re-auth is a single click that heals all consuming projects at once, instead of editing the token in multiple project envs.
+Spotify applies a 6-month refresh-token lifetime to apps created on or after June 18, 2026 and to existing apps from July 20, 2026; refreshing does NOT extend that window. ReTokenD centralizes the token(s) so one dashboard re-authorization flow heals all consuming projects at once, instead of editing the token in multiple project envs.
