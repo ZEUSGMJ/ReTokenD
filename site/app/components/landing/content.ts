@@ -11,8 +11,11 @@ import {
 
 export const GITHUB_URL = "https://github.com/ZEUSGMJ/ReTokenD";
 
-// Canonical deploy URL for SEO metadata; set NEXT_PUBLIC_SITE_URL in the Vercel project.
-export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3001";
+export const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL ??
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : "http://localhost:3001");
 
 export const NAV_LINKS = [
   { href: "#features", label: "Features" },
