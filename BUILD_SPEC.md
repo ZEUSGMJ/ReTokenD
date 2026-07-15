@@ -1,208 +1,210 @@
-# ReTokenD — Build Spec
+# ReTokenD build specification
 
-A password-gated Next.js (App Router) app, deployable on Vercel or self-hosted (Docker). It is the **single source of truth** for one or more Spotify refresh tokens ("profiles"), used by my personal portfolio plus other projects.
+This is the behavioral contract for the current multi-profile implementation of ReTokenD. It supersedes the original single-token, Upstash-only version. Read [CLAUDE.md](CLAUDE.md) before changing the implementation and [ARCHITECTURE.md](ARCHITECTURE.md) for design rationale.
 
-> **v2 — profiles.** This spec has been updated to match what's actually built: multi-profile support, dual storage backends (Upstash or self-hosted Redis), per-profile Spotify app credentials, and login rate limiting. Historical v1 (single token, Upstash-only) is superseded below.
+## Product contract
 
-> **First:** read `CLAUDE.md` for the hard constraints before touching the code.
+ReTokenD is a private, single-admin Next.js application that owns Spotify refresh tokens for one or more profiles. Trusted projects authenticate to ReTokenD and receive short-lived access tokens. They never receive the underlying refresh token.
 
----
+Spotify measures a refresh token's six-month lifetime from the user's authorization. Refreshing an access token does not extend that window. ReTokenD therefore records the authorization time, warns before expiry, and provides one reauthorization flow that repairs every consumer of the same profile.
 
-## 1. Why this exists
+The implementation must preserve these invariants:
 
-Spotify refresh tokens expire **6 months after the original authorization** for apps created on or after **June 18, 2026**, and for existing apps from **July 20, 2026**. **Refreshing does NOT extend that window** (verified against Spotify's docs). On expiry the token endpoint returns `400 {"error":"invalid_grant"}` and the only fix is re-authorizing.
+- Secrets live only in environment variables or Redis.
+- `/api/token` never returns a refresh token.
+- `/api/callback` is the only code path allowed to write `refresh_token:issued_at`.
+- A normal access-token refresh may rotate the refresh token but must not alter `issued_at`.
+- Spotify `invalid_grant` stops further refresh attempts until a human reauthorizes the profile.
+- Every human-facing route requires the administrator session, apart from the login page itself.
 
-I reuse Spotify refresh tokens across several projects. Without a central token service, consumers of a given token break simultaneously every 6 months and I'd have to paste a new token into every project's env. ReTokenD fixes that:
+## Platform
 
-```
-                 (re-auth, ~2x/year, me only, password-gated)
-   me ─▶ dashboard ─▶ Spotify OAuth ─▶ store refresh_token + issued_at ─▶ Redis/Upstash
-                                                       │
-   GET /api/token?profile=x ── refresh + cache access token ───┘
-        ▲         ▲         ▲
-        │ bearer  │ secret  │
-   portfolio  project2  project3   (hold only the ReTokenD URL + shared secret)
-```
+- Next.js 16 App Router with TypeScript and React 19
+- Tailwind CSS v4 and shadcn/ui, dark mode only
+- Inter for interface text and JetBrains Mono for countdown values
+- One storage abstraction with Redis and Upstash adapters
+- Discord webhooks for optional notifications
+- Vercel Cron or any external authenticated scheduler
+- No user database or account system beyond the single administrator password
 
-Only ReTokenD ever calls Spotify's refresh endpoint → no token-rotation races. Re-auth once per profile → all consumers of that profile recover automatically. Multiple Spotify accounts/apps are supported as independent **profiles**, each with its own token, scopes, credentials, and countdown.
+The self-hosted build uses Next.js standalone output. Storage selection happens lazily on first use: `REDIS_URL` selects node-redis; otherwise the `KV_REST_API_URL` and `KV_REST_API_TOKEN` pair selects Upstash REST; otherwise storage throws. The Upstash client disables automatic deserialization so both adapters share the same encoding behavior.
 
----
+## Environment contract
 
-## 2. Tech
+| Variable | Requirement |
+| --- | --- |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Default Spotify credential pair |
+| `SPOTIFY_CLIENT_ID_<PROFILE>` / `SPOTIFY_CLIENT_SECRET_<PROFILE>` | Optional profile-specific pair; profile id is uppercased and hyphens become underscores |
+| `RETOKEND_SECRET` | Bearer secret for `/api/token` |
+| `ADMIN_PASSWORD` | Administrator password |
+| `SESSION_SECRET` | HMAC key for session and OAuth-state cookies; fallback encryption key |
+| `CREDENTIALS_SECRET` | Optional dedicated key for dashboard-stored Spotify client secrets |
+| `BASE_URL` | Public origin used for `${BASE_URL}/api/callback` |
+| `REDIS_URL` | Redis connection string; takes precedence over Upstash |
+| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | Upstash REST configuration |
+| `CRON_SECRET` | Bearer secret for `/api/check` |
+| `DISCORD_WEBHOOK_URL` | Optional Discord notification destination |
 
-- **Next.js 16 (App Router)**, deployable on **Vercel (serverless)** or **self-hosted via Docker** (`output: "standalone"`) — same codebase, chosen purely by env.
-- **Storage:** a backend-agnostic `StorageAdapter` (`lib/storage/`), selected lazily at runtime:
-  - `REDIS_URL` set → self-hosted Redis via `redis` (node-redis), one persistent TCP connection.
-  - else `KV_REST_API_URL` + `KV_REST_API_TOKEN` set → Upstash REST via `@upstash/redis`, constructed explicitly (`automaticDeserialization: false`, so the storage layer owns JSON encode/decode and stays byte-for-byte identical to the node-redis backend), not `fromEnv()` (which doesn't read Vercel Marketplace vars).
-  - neither set → throws.
-- **Styling:** Tailwind CSS v4 + shadcn/ui (card, button, badge).
-- **Fonts:** Inter (UI text), JetBrains Mono (countdown digits).
-- **Theme:** Dark mode only (no toggle); `<html class="dark">`.
-- No database other than Redis/Upstash. No user accounts beyond the single admin password. Login is rate limited (10 failed attempts / 15 min / IP).
+`.env.example` lists every supported variable with empty values. No populated `.env*` file may be committed.
 
----
+## Profile and storage contract
 
-## 3. Environment variables
+Profile ids must match `^[a-z0-9-]{1,32}$`. `default` is created automatically and cannot be deleted. `spotify:profiles`, stored as a JSON array, is the source of truth for registered profiles.
 
-| Var | Purpose |
-|-----|---------|
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Default Spotify app credentials, used by any profile without its own |
-| `SPOTIFY_CLIENT_ID_<PROFILE>` / `SPOTIFY_CLIENT_SECRET_<PROFILE>` | Optional per-profile override (suffix = profile id upper-cased, `-`→`_`); dashboard-entered credentials take precedence over these |
-| `RETOKEND_SECRET` | Bearer secret the consumer projects send to `/api/token` |
-| `ADMIN_PASSWORD` | Gates dashboard + `/login` + `/api/login` + `/api/callback` |
-| `SESSION_SECRET` | Signs the admin session cookie and the OAuth-state cookie; fallback key for `CREDENTIALS_SECRET` |
-| `CREDENTIALS_SECRET` | Optional. Dedicated key for AES-256-GCM-encrypting per-profile client secrets stored via the dashboard; falls back to `SESSION_SECRET` |
-| `BASE_URL` | Public ReTokenD URL, e.g. `https://retokend.example.com` (used to build the OAuth redirect URI) |
-| `REDIS_URL` | Self-hosted Redis connection string. Set this **or** the two Upstash vars below (REDIS_URL wins if both are set) |
-| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | Upstash, injected by the Vercel Marketplace integration |
-| `CRON_SECRET` | Validates the cron request to `/api/check` (Vercel Cron or an external scheduler) |
-| `DISCORD_WEBHOOK_URL` | Discord webhook URL for notifications (private channel) |
+Every profile owns these keys under `spotify:<profile>:`:
 
-Provide a `.env.example` listing all of these (no values). Never commit real values.
+| Suffix | Value and behavior |
+| --- | --- |
+| `refresh_token` | Current Spotify refresh token; replaced on authorization and optional rotation |
+| `refresh_token:issued_at` | ISO timestamp written only after a full authorization succeeds |
+| `access_token` | JSON `{access_token, expires_at}`; TTL is `max(expires_in - 60, 60)` seconds |
+| `reauth_required` | `"1"` after `invalid_grant`; cleared by successful reauthorization |
+| `last_refresh` | ISO timestamp of the latest successful access-token refresh |
+| `scopes` | JSON array of selected scope ids; `[]` is valid |
+| `refresh_lock` | Unique owner with a ten-second TTL and atomic owner-checked release |
+| `enabled` | `"0"` disables the profile; absent or any other value means enabled |
+| `account_id`, `display_name` | Best-effort Spotify account metadata |
+| `client_id`, `client_secret_enc` | Optional dashboard-stored Spotify app credentials |
+| `notified:reauth` | Successful reauthorization-alert marker |
+| `notified:1`, `notified:7`, `notified:14` | Successful expiry-alert markers |
 
----
+`expires_at`, stored in epoch milliseconds, is authoritative for access-token cache validity. A cached value at or after its expiry is a miss even if the backend still returns it.
 
-## 4. Redis keys
+`session:generation` is a monotonic global key used to revoke existing administrator cookies. Older non-profile Spotify keys are migration input only: first-time initialization copies them into `default` and never writes them again.
 
-Every profile (`default`, `portfolio`, …) gets its own key set under `spotify:<profile>:*`, built by `keysFor(profile)` in `lib/keys.ts`:
+## Credentials and scopes
 
-| Key (under `spotify:<profile>:`) | Value | Notes |
-|-----|-------|-------|
-| `refresh_token` | string | The live refresh token. Updated on re-auth and on rotation. |
-| `refresh_token:issued_at` | ISO 8601 string | **Set only on full re-auth** (`/api/callback`). Drives the countdown. Never updated on refresh. |
-| `access_token` | JSON `{access_token, expires_at}` | Cached token blob (`expires_at` = epoch ms). TTL = `expires_in - 60` (min 60s); `expires_at` is authoritative and a value at/after it is a cache miss. |
-| `reauth_required` | "1" / flag | Set when a refresh returns `invalid_grant`. Cleared on successful re-auth. |
-| `last_refresh` | ISO 8601 string | Last successful access-token refresh time. Set on every `/api/token` success; displayed on dashboard. |
-| `scopes` | JSON array of strings | Admin-selected scope ids, e.g. `["user-top-read","user-read-currently-playing"]`. Persisted by the dashboard; applied on next re-auth. |
-| `refresh_lock` | unique owner id | Short-lived (10s TTL) NX lock for single-flight refresh: only one `/api/token` call hits Spotify at a time; others poll the cache or fall back to refresh. Release uses atomic owner compare-and-delete. |
-| `enabled` | "0" / absent | "0" disables the profile; skipped by `/api/token` (403) and by the cron. Absent/anything else = enabled. |
-| `account_id` / `display_name` | string | Best-effort Spotify account metadata fetched on callback, shown on the profile card. |
-| `client_id` / `client_secret_enc` | string | Optional per-profile Spotify app credentials entered on the dashboard; secret is AES-256-GCM encrypted (`lib/crypto.ts`). |
-| `notified:reauth` | "1" / flag | De-dupe marker for the re-auth alert. Cleared on re-auth. |
-| `notified:{days}` | "1" | De-dupe marker so each expiry threshold alert (14/7/1) fires once per cycle. Cleared on re-auth. |
+Spotify credentials resolve as coherent pairs in this order:
 
-Non-profile keys: `spotify:profiles` (the registry — a JSON array of profile ids, the source of truth for which profiles exist, `lib/profiles.ts`) and `session:generation` (a monotonic counter embedded in every session cookie; `logout()` bumps it to revoke all outstanding cookies server-side). Bare (non-namespaced) keys like `spotify:refresh_token` are **legacy** — they exist only as one-time migration input, read once to seed the `default` profile on first use, and are never written to afterward.
+1. Dashboard-stored profile credentials
+2. Profile-specific environment credentials
+3. Global environment credentials
 
----
+The client secret stored from the dashboard is encrypted with AES-256-GCM using `CREDENTIALS_SECRET`, falling back to `SESSION_SECRET`. Ids and secrets from different sources must never be mixed.
 
-## 5. Spotify scopes (configurable)
+When no scope array exists, the authorization request uses:
 
-**Default scopes** (used as fallback if a profile has none saved):
-```
+```text
 user-top-read
 user-read-currently-playing
 user-read-recently-played
 ```
 
-**Configurable:** the admin can select any subset of standard user scopes from a grouped UI on the dashboard, per profile (Listening History, Spotify Connect, Playback, Playlists, Library, Follow, Users, Images; partner-only SOA scopes omitted). Selections persist to Redis (`spotify:<profile>:scopes`) and are **applied on the next re-authorization** — Spotify grants scopes at the `authorize` step, not retroactively.
+An explicitly stored empty array requests no optional scopes. The dashboard accepts only ids in `SPOTIFY_SCOPE_CATALOG`; saved selections apply on the next authorization.
 
----
+## HTTP routes
 
-## 6. Routes & behavior
+### `GET /api/login?profile=<id>`
 
-### `GET /api/login?profile=x` — (admin-gated)
-- Validate `profile` (defaults to `default`) against the id pattern; `400 invalid_profile` otherwise.
-- Generate a random `state`; store `{state, profile, iat}` HMAC-signed in a short-lived cookie (`retokend_oauth_state`, 10-min TTL).
-- Redirect to `https://accounts.spotify.com/authorize` with:
-  `response_type=code`, `client_id` (resolved per profile), `scope` (space-joined, per-profile configured scopes), `redirect_uri=${BASE_URL}/api/callback`, `state`, `show_dialog=true`.
+This administrator-session route starts Spotify authorization.
 
-### `GET /api/callback` — (admin-gated)
-- Verify the signed state cookie: signature valid, not expired, `state` matches the query param. Recover `profile` from the cookie payload — the profile travels in the cookie, not the URL, so one registered redirect URI serves every profile.
-- Exchange `code` for tokens: `POST https://accounts.spotify.com/api/token`
-  - Headers: `Authorization: Basic base64(client_id:client_secret)` (profile's resolved credentials), `Content-Type: application/x-www-form-urlencoded`
-  - Body: `grant_type=authorization_code`, `code`, `redirect_uri=${BASE_URL}/api/callback`
-- Validate the response includes a non-empty `refresh_token` string; if not, show an error page and make **no** writes (never reset `issued_at` without a token to store).
-- On success: store `spotify:<profile>:refresh_token` first, then set `spotify:<profile>:refresh_token:issued_at = now (ISO)` (**the only place this happens**). After both writes succeed, delete `access_token`, `reauth_required`, `notified:reauth`, and all `notified:*` threshold flags. Best-effort fetch the Spotify account (`/v1/me`) and store `account_id`/`display_name` for the dashboard card. Register the profile in `spotify:profiles`. Redirect to `/`.
-- On error (missing code/state, invalid/expired state, exchange failure): show a clear error page.
+- Default the profile to `default` and reject an invalid id with `400 invalid_profile`.
+- Confirm the administrator session generation is current.
+- Generate a random state and place signed `{state, profile, iat}` data in the HTTP-only `retokend_oauth_state` cookie for ten minutes.
+- Redirect to Spotify with `response_type=code`, the resolved client id, configured scopes, `${BASE_URL}/api/callback`, the random state, and `show_dialog=true`.
 
-### `GET /api/token?profile=x` — (bearer-gated, for consumer projects)
-- Require header `Authorization: Bearer ${RETOKEND_SECRET}`; else `401 unauthorized`.
-- Validate `profile` (defaults to `default`): invalid id → `400 invalid_profile`; not registered → `404 unknown_profile`; disabled → `403 profile_disabled`.
-- The registry, `enabled` flag, and cached token are read in parallel; the 404/403 branches preserve their ordering. If the cached `{access_token, expires_at}` blob is present and unexpired → return `{ access_token, expires_at, profile }` immediately.
-- If no refresh token stored, **or** `reauth_required` is set → `409 { error: "reauth_required", profile }` **without calling Spotify** (no retries after `invalid_grant` until re-auth clears the flag).
-- Else: acquire an owner-tagged `refresh_lock` (10s NX lock). Losers poll the access-token cache (4 iterations × 500ms); if still nothing, a loser **re-reads `refresh_token` + `reauth_required`** (409 if now flagged/absent) before falling back to a normal refresh with the fresh token as a safety valve. A holder releases only if its owner value still matches.
-- Winner: read `refresh_token` and refresh:
-  - `POST https://accounts.spotify.com/api/token`, `Authorization: Basic base64(id:secret)`, body `grant_type=refresh_token`, `refresh_token`.
-  - On `200`: cache `access_token` as `{access_token, expires_at}` (TTL `expires_in - 60`, min 60s), set `last_refresh = now`, clear `reauth_required`; if the response **includes a new `refresh_token`**, overwrite `refresh_token` **only while holding the lock** (a loser must not clobber the winner's rotation) but **DO NOT touch `issued_at`**. Return `{ access_token, expires_at, profile }`.
-  - On `400 invalid_grant`: set `reauth_required`, **do not retry**, return `409 { error: "reauth_required", profile }`.
-  - Other Spotify errors: `502 { error: "spotify_error" }`.
-- **Never** include the refresh token in any response.
+### `GET /api/callback`
 
-### `GET /` — dashboard (admin-gated)
-- **Header bar:** app title on the left; **Log out** button on the right.
-- **One `ProfileCard` per registered profile:** status badge (valid / expiring-soon / expired-or-reauth-required), a **live countdown** to `issued_at + 6 months`, account info (display name / id), token details (issued-at, expires-at, last refresh), scopes (grouped checkboxes, **Save scopes** — applied on next re-auth), Spotify app credentials (client id/secret, encrypted at rest), **Re-authorize** button (`/api/login?profile=x`), **Test Notification**, enable/disable toggle, and (for non-`default` profiles) **Delete**.
-- **Add profile** form/card: creates and registers a new profile id.
+This administrator-session route completes authorization.
 
-### `GET /login` + `POST /login` (server action) — admin password page
-- Simple password form. Rate limited atomically (`storage.incr`, window preserved): per client IP in Redis (`login:fail:<ip>`, 15-min window) at 10 failures, plus a global `login:fail:global` at 50/15-min so a spoofed `X-Forwarded-For` can't buy unlimited guesses; at the limit further attempts (even correct ones) are rejected until the window expires. A successful login clears the per-IP counter.
-- Constant-time compare against `ADMIN_PASSWORD`; on success set a signed session cookie (`retokend_session`, `SESSION_SECRET`, 30-day TTL) embedding the current `session:generation`; redirect to `/`. `logout()` bumps `session:generation` to revoke every outstanding cookie server-side.
+- Confirm the administrator session generation is current.
+- Verify the OAuth-state cookie signature, age, and query-state match. Recover the profile from the cookie rather than the callback URL.
+- Exchange the code using the profile's resolved credentials and exact redirect URI.
+- Require a non-empty refresh token. If it is missing, show an error and write no token lifecycle state.
+- Store `refresh_token` first, then set `refresh_token:issued_at` to the current ISO timestamp.
+- Only after both writes succeed, delete the access-token cache, reauthorization flag, and every notification marker.
+- Fetch `/v1/me` and store account metadata on a best-effort basis, register the profile, then redirect to `/`.
+- Render a clear error response for missing parameters, invalid state, or exchange failures.
 
-### `GET /api/check` — cron (secret-gated)
-- Validate the request (`Authorization: Bearer ${CRON_SECRET}`).
-- Iterate every **enabled** profile. For each: if `reauth_required`, send one Discord alert (deduped via `notified:reauth`); else compute days-left from `issued_at` and, if `<=` the smallest un-notified threshold (ascending 1/7/14), send a notification — only one threshold fires per run per profile. `notify()` returns whether delivery succeeded; the dedupe flag is set **only on success** (a Discord outage retries next run), and when a threshold fires the flags for all larger thresholds are set too (implied), so no stale follow-up alerts.
+### `GET /api/token?profile=<id>`
 
----
+This consumer route requires `Authorization: Bearer <RETOKEND_SECRET>`. The profile defaults to `default`.
 
-## 7. Auth gate (proxy)
+Validation and error order:
 
-`proxy.ts` (Next.js 16 replaces the `middleware.ts` convention with `proxy`) is **fail-closed** on the Node.js runtime: its matcher covers dynamic routes, then exact `/api/token` and `/api/check` paths bypass the session check because they have independent bearer auth. Similarly prefixed paths such as `/api/token-admin` remain session-gated. It verifies the signed session cookie's **signature + age only** and stays storage-free; `/login` and `/robots.txt` skip the check so the login form renders unauthenticated.
-The server-side **generation check** (revocation) runs Node-side at the top of `/`, `/api/login`, and `/api/callback`. Also adds `X-Robots-Tag: noindex, nofollow` to all responses.
+| Condition | Response |
+| --- | --- |
+| Invalid bearer secret | `401 {error: "unauthorized"}` |
+| Invalid profile id | `400 {error: "invalid_profile"}` |
+| Unregistered profile | `404 {error: "unknown_profile"}` |
+| Disabled profile | `403 {error: "profile_disabled"}` |
+| Missing refresh token or reauthorization flag | `409 {error: "reauth_required", profile}` |
 
----
+The registry, enabled flag, and cached token are read in parallel, while responses preserve the order above. An unexpired cached token returns immediately as `{access_token, expires_at, profile}`.
 
-## 8. Hidden from search engines
+On a cache miss:
 
-- `app/robots.ts` → disallow all (`{ rules: { userAgent: '*', disallow: '/' } }`).
-- Root `metadata.robots = { index: false, follow: false }`.
-- `X-Robots-Tag: noindex, nofollow` response header (middleware or `next.config` headers).
-- The admin password gate already blocks crawlers from content.
-- Optional: enable Vercel Deployment Protection (Vercel Authentication) for an extra layer.
+1. Stop with `409` when the refresh token is absent or `reauth_required` is set; do not call Spotify.
+2. Acquire the owner-tagged ten-second refresh lock.
+3. A loser polls the cache four times at 500 ms intervals. Before falling back to its own refresh, it rereads both the refresh token and reauthorization flag.
+4. Refresh through Spotify using the resolved credential pair.
+5. On success, cache `{access_token, expires_at}`, update `last_refresh`, clear a stale reauthorization flag, and store a returned replacement refresh token only while holding the lock. Never write `issued_at`.
+6. On `invalid_grant`, set `reauth_required`, do not retry, and return `409`.
+7. Return `502 {error: "spotify_error"}` for other Spotify failures.
 
----
+Lock release must compare the stored owner before deletion. No response may include the refresh token.
 
-## 9. Notifications (Discord webhook)
+### `GET /api/check`
 
-A cron entry (`vercel.json` on Vercel, or an external scheduler for self-hosted) hits `/api/check` daily (e.g., `0 9 * * *`). For each **enabled** profile, on threshold crossing (14/7/1 days remaining) or `reauth_required`, sends a Discord webhook message.
+This scheduler route requires `Authorization: Bearer <CRON_SECRET>` and returns `{ok: true, notifications}`.
 
-**Channel:** Discord webhook to a private channel (env var `DISCORD_WEBHOOK_URL`). No bot, no hosting; one stateless `fetch` per notification. Enabled mobile push by toggling channel notifications on Discord.
+- Iterate only enabled profiles.
+- If `reauth_required` is set, send one alert per incident and use `notified:reauth` for deduplication.
+- Otherwise evaluate the 1-, 7-, and 14-day thresholds in ascending order and send at most one alert per profile per run.
+- Write deduplication markers only after successful notification delivery.
+- When a smaller threshold fires, also mark every larger threshold as implied.
+- Let notification failures retry on the next run; delivery errors must not fail the route.
 
-**Format:** Rich embeds via `buildStatusEmbed()` — title "ReTokenD" (or "ReTokenD — `<profile>`" when a profile is given), description, Spotify green color #1DB954, fields: Profile, Status, Days Remaining, Expires At with Discord epoch timestamp, footer, ISO timestamp. Abstracted behind `notify(message, embeds?)` in `lib/notify.ts` (fails soft, never throws) so the channel is swappable to ntfy/Telegram/email/etc. later.
+### Dashboard and login
 
-**Test:** The dashboard **Test Notification** button on each profile card sends a sample embed with that profile's current token state immediately, useful for verifying the webhook is wired correctly without waiting for a real threshold.
+`GET /` is a force-dynamic, administrator-gated dashboard. It renders one card per registered profile plus an add-profile form. Each card shows lifecycle status, a live countdown, account information, token timestamps, scope controls, optional Spotify app credentials, and reauthorize, test-notification, enable/disable, and delete actions. Delete is unavailable for `default`.
 
----
+`GET /login` renders without a session. Its server action:
 
-## 10. Spotify app config (I do this manually)
+- Uses fixed 15-minute counters at `login:fail:<ip>` and `login:fail:global`.
+- Rejects requests at 10 per-IP failures or 50 global failures, even if the supplied password is correct.
+- Compares the password with `ADMIN_PASSWORD` in constant time.
+- Increments both counters after a failed comparison.
+- Clears the per-IP counter after an allowed successful comparison.
+- Creates a signed, secure, HTTP-only, same-site, 30-day session cookie containing `{iat, gen}`.
 
-Add `${BASE_URL}/api/callback` (and a `http://127.0.0.1:3000/api/callback` for local dev) as Redirect URIs on the **PROD** Spotify app at the Spotify Developer Dashboard. The DEV app stays for portfolio localhost dev.
+Logout increments `session:generation` before deleting the browser cookie, revoking every outstanding administrator session.
 
----
+## Server actions
 
-## 11. Security checklist
+- `saveScopes()` whitelists submitted ids against the scope catalog and stores the resulting array.
+- `testNotification()` sends the selected profile's current lifecycle state immediately.
+- `toggleProfileEnabled()` changes whether the profile can serve tokens or receive scheduled checks.
+- `createProfile()` normalizes the submitted id to lowercase, validates it, and registers it.
+- `saveProfileCredentials()` requires a client id and either a new secret or an existing encrypted secret. A blank secret preserves the stored value.
+- `clearProfileCredentials()` removes both stored values and restores environment fallback.
+- `deleteProfile()` removes every owned key and registry entry for a non-default profile.
 
-- Secrets only in env/Redis; provide `.env.example` with empty values; `.gitignore` covers `.env*`.
-- `/api/token` returns access token only — never refresh token.
-- Constant-time compare for `ADMIN_PASSWORD` and `RETOKEND_SECRET` checks.
-- Login rate limited (10 failures / 15 min / IP).
-- Per-profile client secrets encrypted at rest (AES-256-GCM, `CREDENTIALS_SECRET`/`SESSION_SECRET`).
-- Signed, httpOnly, secure session and OAuth-state cookies.
-- Validate OAuth `state`.
-- The repo is public — secrets live only in env/Redis; never in code or committed files.
+Every profile-scoped action validates the id, and actions that operate on existing state also confirm registry membership.
 
----
+## Authentication and crawler rules
 
-## 12. Verification (do before declaring done)
+`proxy.ts` uses a fail-closed matcher. Exact `/api/token` and `/api/check` requests bypass the administrator session because their handlers apply separate bearer authentication. Similarly prefixed routes do not bypass it. Static assets, image assets, favicon, and `robots.txt` are excluded; `/login` is explicitly allowed.
 
-1. **Re-auth:** `/login` → dashboard → Re-authorize a profile → approve on Spotify → redirected back; countdown shows ~6 months; `spotify:<profile>:refresh_token` + `issued_at` exist in the storage backend.
-2. **Token endpoint:** `curl -H "Authorization: Bearer $RETOKEND_SECRET" $BASE_URL/api/token` → `{access_token, expires_at, profile}`; missing/wrong header → `401`; unknown profile → `404`; disabled profile → `403`.
-3. **invalid_grant:** set a garbage `spotify:<profile>:refresh_token` → `/api/token` → `409 reauth_required`, flag set, no retry (no Spotify call on subsequent requests); dashboard shows expired/re-auth state.
-4. **Gating:** hitting `/` or `/api/login` without the session cookie redirects to `/login`; `/api/token` is reachable with the bearer secret only.
-5. **Login rate limit:** 10 wrong-password submissions from one IP within 15 minutes lock out further attempts until the window expires or a correct login (which clears the counter).
-6. **No-index:** `curl -I $BASE_URL` shows `X-Robots-Tag: noindex`; `/robots.txt` disallows all.
-7. **Cron:** hitting `/api/check` with the cron secret triggers a test notification for a profile within a threshold or with `reauth_required` set.
+The proxy checks the cookie signature and age without storage. The dashboard and both Spotify OAuth routes additionally compare the cookie generation against Redis. Every proxy response adds `X-Robots-Tag: noindex, nofollow`.
 
----
+Crawler protection also includes a disallow-all `robots.ts` response and root metadata with indexing and following disabled. These controls supplement authentication; they do not replace it.
 
-## 13. After it's live
+## Notifications
 
-Tell me the deployed `BASE_URL` and confirm `/api/token` works. Then I return to my **portfolio** session and switch its `lib/utils/spotify.js` to fetch from `${RETOKEND_URL}/api/token` with the bearer secret, and remove the old `SPOTIFY_REFRESH_TOKEN`/`SPOTIFY_CLIENT_SECRET` usage there. The other two projects get the same consumer change.
+`notify(message, embeds?)` sends a Discord webhook and returns whether Discord accepted it. It logs failures but never throws. `buildStatusEmbed()` creates a Spotify-green embed containing the profile, status, days remaining, expiry timestamp, footer, and event timestamp.
+
+The included Vercel schedule runs `/api/check` at `0 9 * * *`. Self-hosted installations supply their own scheduler. The dashboard's Test Notification action verifies delivery without changing deduplication state.
+
+## Acceptance criteria
+
+1. **Authorization:** Log in, authorize a profile, and return to the dashboard with a new refresh token and `issued_at`. The countdown shows roughly six calendar months.
+2. **Consumer API:** A valid bearer request returns only `access_token`, `expires_at`, and `profile`. Missing auth, invalid ids, unknown profiles, and disabled profiles return `401`, `400`, `404`, and `403` respectively.
+3. **Cache and refresh:** Repeated requests reuse a valid cached token. Concurrent cache misses normally produce one Spotify refresh call. Refresh-token rotation does not change `issued_at`.
+4. **Terminal refresh failure:** An invalid refresh token causes `409 reauth_required` and sets the flag. Later requests return `409` without another Spotify call until reauthorization.
+5. **Scopes:** A missing scope record uses `DEFAULT_SCOPES`; a saved empty array requests no optional scopes; saved selections appear on the next Spotify authorization.
+6. **Sessions:** Unauthenticated human routes redirect to `/login`. Ten per-IP failures or 50 global failures enforce the lockout window. Logout invalidates previously issued session cookies.
+7. **Notifications:** Expiry and reauthorization alerts include the profile and are deduplicated only after successful delivery. A dashboard test sends immediately.
+8. **Crawler controls:** `/robots.txt` disallows all and dynamic responses include `X-Robots-Tag: noindex, nofollow`.
+9. **Storage parity:** Both adapters encode values consistently and preserve atomic counters and owner-checked locks.
+10. **Quality gates:** `pnpm typecheck`, `pnpm lint`, and `pnpm build` complete without errors.

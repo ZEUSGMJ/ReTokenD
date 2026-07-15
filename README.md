@@ -1,114 +1,107 @@
 # ReTokenD
 
-ReTokenD manages Spotify OAuth tokens for my projects from one self-hosted service.
+ReTokenD is the small, private service I use to manage Spotify OAuth tokens for my projects.
 
-Spotify applies a six-month refresh-token lifetime to apps created on or after June 18, 2026 and to existing apps from July 20, 2026. I use the Spotify API in several projects, and I didn't want to update every project's refresh token by hand whenever one expired. ReTokenD stores those tokens centrally, issues short-lived access tokens, tracks each expiry window, and gives me one place to re-authorize.
+[Spotify refresh tokens now have a six-month lifetime](https://developer.spotify.com/blog/2026-06-18-refresh-token-expiration): the policy applies to newly created apps from June 18, 2026, and to existing apps from July 20, 2026. Refreshing an access token does not restart that clock. I built ReTokenD so I can reauthorize a Spotify account once instead of replacing a refresh token in every project that uses it.
 
-It can run on Docker with Redis or on Vercel with Upstash, and supports one or more Spotify accounts through independent profiles.
+ReTokenD keeps refresh tokens on the server, gives trusted consumers short-lived access tokens, tracks each authorization window, and warns me before a profile needs attention. It supports multiple Spotify accounts or apps through independent profiles.
 
-> Not affiliated with Spotify. You provide your own Spotify Developer credentials.
+It runs either as a Docker service backed by Redis or on Vercel with Upstash.
 
-## Features
+> ReTokenD is not affiliated with Spotify. You need your own Spotify Developer credentials.
 
-- Self-host with Docker + Redis or deploy on Vercel + Upstash.
-- Manage multiple Spotify profiles from a single instance.
-- Refresh tokens never leave the server. `/api/token` only returns an access token.
-- Track the remaining lifetime of each refresh token.
-- Optional Discord notifications for expiry and re-authorization.
-- Password-protected dashboard.
+## What it does
 
-## Stack
+- Manages one or more independent Spotify profiles from a password-protected dashboard.
+- Keeps refresh tokens server-side; `/api/token` returns access tokens only.
+- Caches access tokens so consumers do not hit Spotify unnecessarily.
+- Shows when each six-month authorization window ends.
+- Supports profile-specific scopes and Spotify app credentials.
+- Sends optional Discord alerts before expiry or when reauthorization is required.
+- Runs with Docker and Redis or with Vercel and Upstash.
 
-- Next.js 16 (App Router, TypeScript), React 19
-- Tailwind CSS v4 + shadcn/ui
-- Redis or Upstash through a shared storage abstraction (`lib/storage`)
-- Discord webhooks
-- Vercel Cron or any external scheduler
+## Requirements
 
-## Storage
+- A Spotify Developer app
+- A Redis instance or an Upstash database
+- Node.js and pnpm for local development, or Docker for a containerized deployment
+- A Discord webhook if you want notifications
 
-The storage backend is selected from the available environment variables:
+## Choose a storage backend
 
-1. `REDIS_URL` → local / self-hosted Redis (`redis://localhost:6379`)
-2. `KV_REST_API_URL` + `KV_REST_API_TOKEN` → Upstash REST
-3. Otherwise the app throws an error on its first storage access.
+ReTokenD selects storage from its environment:
 
-All application storage goes through `lib/storage`, so the rest of the code doesn't need to know which backend is active.
+1. If `REDIS_URL` is set, it uses Redis over TCP.
+2. Otherwise, if `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set, it uses Upstash REST.
+3. If neither backend is configured, the first storage operation fails with a configuration error.
 
-## Running with Docker
+`REDIS_URL` wins when both configurations are present. The rest of the app talks only to `lib/storage`, so its behavior is the same with either backend.
+
+## Run with Docker
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-This starts the app on `http://localhost:3000` alongside a Redis container with `appendonly` persistence on a named volume (`redis_data`). Token data survives restarts and rebuilds. Deleting the volume with `docker compose down -v` removes it.
+The Compose stack starts ReTokenD at `http://localhost:3000` with Redis 7. Redis uses append-only persistence on the `redis_data` volume, so tokens survive restarts and rebuilds. Running `docker compose down -v` also deletes that data.
 
-> Set `BASE_URL` to the URL you'll actually use and register `<BASE_URL>/api/callback` in the Spotify Developer Dashboard. Spotify only allows plain HTTP for the `127.0.0.1` loopback, not `localhost`.
+Set `BASE_URL` to the address you will actually use and register `<BASE_URL>/api/callback` in the Spotify Developer Dashboard.
 
-## Running on Vercel
+> For local OAuth, use `http://127.0.0.1:3000`, not `http://localhost:3000`. Spotify permits plain HTTP for the loopback IP address only.
 
-1. Install the Upstash integration from the Vercel Marketplace.
-2. Configure the remaining environment variables.
-3. Deploy.
+## Deploy on Vercel
 
-The cron defined in `vercel.json` (`0 9 * * *` → `/api/check`) is picked up automatically. Leave `REDIS_URL` unset so the Upstash backend is used.
+1. Import the repository into Vercel.
+2. Install Upstash from the Vercel Marketplace so the `KV_REST_API_*` variables are injected.
+3. Add the remaining environment variables and leave `REDIS_URL` unset.
+4. Register `https://<your-domain>/api/callback` with Spotify.
+5. Deploy.
 
-## Other deployments
+Vercel reads the daily `/api/check` schedule from `vercel.json`. ReTokenD also works on any platform that can run its Docker image and connect to Redis; use an external scheduler for `/api/check` in that case.
 
-The container runs anywhere Docker is supported, including Docker Compose, Coolify, Portainer, CasaOS, Unraid, TrueNAS SCALE, Railway, Fly.io, Render, or a Linux VPS.
+## Configuration
 
-Point `REDIS_URL` at a Redis instance and configure the required environment variables.
-
-## Environment variables
-
-Copy `.env.example` to `.env` (Docker) or `.env.local` (local development).
+Copy `.env.example` to `.env.local` for local development or `.env` for Docker. Never commit real values; `.gitignore` excludes `.env*` while keeping `.env.example` tracked.
 
 | Variable | Purpose |
-| ---------- | ------- |
+| --- | --- |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Default Spotify app credentials |
-| `SPOTIFY_CLIENT_ID_<PROFILE>` / `SPOTIFY_CLIENT_SECRET_<PROFILE>` | Optional per-profile credentials |
-| `RETOKEND_SECRET` | Bearer secret for `/api/token` |
-| `ADMIN_PASSWORD` | Dashboard password |
-| `SESSION_SECRET` | Session and OAuth state signing key |
-| `CREDENTIALS_SECRET` | Optional encryption key for stored client secrets |
-| `BASE_URL` | Public URL used for OAuth callbacks |
-| `REDIS_URL` | Local Redis connection string |
+| `SPOTIFY_CLIENT_ID_<PROFILE>` / `SPOTIFY_CLIENT_SECRET_<PROFILE>` | Optional credentials for one profile |
+| `RETOKEND_SECRET` | Bearer secret accepted by `/api/token` |
+| `ADMIN_PASSWORD` | Password for the dashboard |
+| `SESSION_SECRET` | Key used to sign session and OAuth-state cookies |
+| `CREDENTIALS_SECRET` | Optional key for encrypting dashboard-stored client secrets; falls back to `SESSION_SECRET` |
+| `BASE_URL` | Public origin used to construct the OAuth callback URL |
+| `REDIS_URL` | Redis connection string for self-hosting |
 | `KV_REST_API_URL` / `KV_REST_API_TOKEN` | Upstash REST credentials |
-| `CRON_SECRET` | Bearer secret for `/api/check` |
-| `DISCORD_WEBHOOK_URL` | Discord webhook for notifications |
+| `CRON_SECRET` | Bearer secret accepted by `/api/check` |
+| `DISCORD_WEBHOOK_URL` | Optional Discord webhook for alerts |
 
-Never commit real values. `.gitignore` excludes all `.env*` files.
+For a named profile, replace `<PROFILE>` with the uppercased profile id and convert hyphens to underscores. For example, `my-player` uses `SPOTIFY_CLIENT_ID_MY_PLAYER`.
 
-## Spotify setup
+## Configure Spotify
 
-In the Spotify Developer Dashboard, add the following redirect URIs:
+Add the appropriate callback URLs in the Spotify Developer Dashboard:
 
-- `https://<your-domain>/api/callback`
-- `http://127.0.0.1:3000/api/callback`
+- Production: `https://<your-domain>/api/callback`
+- Local development: `http://127.0.0.1:3000/api/callback`
 
-Every profile shares the same callback URL. The selected profile is stored in the signed OAuth state, not in the callback URL.
+Every profile uses the same callback URL. ReTokenD keeps the selected profile in its signed OAuth-state cookie rather than adding it to the callback URL.
 
-Each profile can use its own Spotify application. Credentials can be configured through the dashboard or with `SPOTIFY_CLIENT_ID_<PROFILE>` / `SPOTIFY_CLIENT_SECRET_<PROFILE>`. Dashboard values take precedence.
+Profiles can share the default Spotify app or use their own credentials. Dashboard-stored credentials take precedence over profile-specific environment variables, which take precedence over the global credentials.
 
-## Profiles
+## Profiles and scopes
 
-Profiles represent independent Spotify authorizations.
+A profile is one independent Spotify authorization. The `default` profile is created automatically, and older single-profile installations migrate into it on first use.
 
-`default` is created automatically. Existing single-profile installations are migrated into it on first launch.
+Each profile has its own refresh token, scopes, countdown, account details, enabled state, and optional Spotify app credentials. Create additional profiles from the dashboard.
 
-Additional profiles can be created from the dashboard. Each profile has its own:
+If a profile has never saved a scope selection, ReTokenD requests its three default scopes. Saving an empty selection is different: the next authorization requests no optional scopes.
 
-- Refresh token
-- OAuth scopes
-- Countdown
-- Spotify app credentials (optional)
-- Account information
-- Enabled/disabled state
+## Use the token API
 
-Saving an empty scope selection is valid. The next authorization requests no additional scopes beyond Spotify's defaults.
-
-## Using the API
+Send the shared bearer secret with every request:
 
 ```bash
 # Default profile
@@ -120,7 +113,7 @@ curl -H "Authorization: Bearer $RETOKEND_SECRET" \
   "https://<retokend>/api/token?profile=portfolio"
 ```
 
-Example response:
+Successful response:
 
 ```json
 {
@@ -130,45 +123,46 @@ Example response:
 }
 ```
 
-The refresh token is never returned.
+The endpoint never returns a refresh token.
 
-Possible responses:
+| Status | Meaning |
+| --- | --- |
+| `400` | Invalid profile id |
+| `401` | Missing or invalid bearer secret |
+| `403` | Profile disabled |
+| `404` | Profile not found |
+| `409` | Profile must be reauthorized |
+| `502` | Spotify token service failed |
 
-- `400` — Invalid profile id
-- `401` — Invalid bearer token
-- `403` — Profile disabled
-- `404` — Unknown profile
-- `409` — Re-authorization required
-- `502` — Spotify token service error
+## Schedule token checks
 
-## Scheduled checks
+`GET /api/check` examines every enabled profile for expiry thresholds and reauthorization flags. Requests must include `Authorization: Bearer <CRON_SECRET>`.
 
-`/api/check` checks every enabled profile for expiry thresholds or re-authorization requirements.
+Vercel runs the included schedule at 09:00 UTC each day. A self-hosted instance can use host cron, systemd, GitHub Actions, Uptime Kuma, cron-job.org, or any scheduler that can send an authenticated HTTP request.
 
-It can be triggered with:
+## Security model
 
-- Vercel Cron
-- Host cron
-- cron-job.org
-- GitHub Actions
-- systemd timers
-- Uptime Kuma
-- Any scheduler capable of sending an authenticated HTTP request
+- Refresh tokens stay in Redis and never appear in API responses.
+- Dashboard-stored Spotify client secrets are encrypted with AES-256-GCM.
+- Human-facing routes require the admin session.
+- Consumer and cron endpoints use separate bearer secrets.
+- Password attempts are rate-limited per IP and globally.
+- Password and bearer comparisons use constant-time helpers.
+- Session and OAuth-state cookies are signed, HTTP-only, and secure.
+- The application blocks indexing with `robots.txt`, metadata, and `X-Robots-Tag` headers.
 
-## Website
+For design details and trust boundaries, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
-`site/` contains the public landing page. It is a standalone Next.js app, developed and deployed separately from ReTokenD itself. Run it with `cd site && pnpm install --ignore-workspace && pnpm dev`; it uses port 3001. The `--ignore-workspace` flag is required because pnpm otherwise attaches to the repository workspace and installs nothing in `site/`.
+## Public website
 
-It deploys as a separate Vercel project with Root Directory set to `site`. Optionally set the project's Ignored Build Step to `git diff --quiet HEAD^ HEAD -- .` so it only redeploys when `site/` changes.
+The `site/` directory contains ReTokenD's public landing page. It is a separate Next.js application and should be deployed as its own Vercel project with `site` as the Root Directory.
 
-Unlike the app, the landing page is public and indexable.
+Run it locally on port 3001:
 
-## Security
+```bash
+cd site
+pnpm install --ignore-workspace
+pnpm dev
+```
 
-- Refresh tokens stay in Redis and are never exposed through the API.
-- Per-profile client secrets are encrypted with AES-256-GCM before being stored.
-- Human-facing routes require authentication.
-- `/api/token` and `/api/check` use bearer authentication.
-- Login attempts are rate limited.
-- Session and bearer comparisons use constant-time checks.
-- The application is hidden from search engines through `robots.ts`, `noindex` metadata, and the `X-Robots-Tag` response header.
+The `--ignore-workspace` flag keeps pnpm from attaching the standalone site to the root workspace. Unlike the token manager, the landing page is public and indexable.
