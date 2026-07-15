@@ -8,6 +8,10 @@ import { listEnabledProfiles } from "@/lib/profiles";
 
 export const runtime = "nodejs";
 
+function formatDays(days: number): string {
+  return `${days} ${days === 1 ? "day" : "days"}`;
+}
+
 async function checkProfile(profile: string): Promise<string[]> {
   const keys = keysFor(profile);
   const fired: string[] = [];
@@ -32,7 +36,7 @@ async function checkProfile(profile: string): Promise<string[]> {
         [
           buildStatusEmbed({
             description:
-              "Re-authorization required — Spotify rejected the refresh token. Re-authorize at the dashboard.",
+              "Spotify rejected the refresh token. Re-authorize from the dashboard.",
             statusLabel: "Re-auth required",
             daysLeft,
             expiresAtIso,
@@ -46,6 +50,7 @@ async function checkProfile(profile: string): Promise<string[]> {
         fired.push("reauth_required");
       }
     }
+    return fired;
   }
 
   if (issuedAt && daysLeft !== null) {
@@ -57,11 +62,12 @@ async function checkProfile(profile: string): Promise<string[]> {
         const notifiedKey = keys.notified(threshold);
         const alreadyNotified = await storage.get<string>(notifiedKey);
         if (!alreadyNotified) {
+          const timeLeft = formatDays(displayDaysLeft);
           const delivered = await notify(
-            `ReTokenD [${profile}]: refresh token expires in ${displayDaysLeft} day(s) (threshold: ${threshold}). Re-authorize soon at the dashboard.`,
+            `ReTokenD [${profile}]: the refresh token expires in ${timeLeft}. Re-authorize from the dashboard.`,
             [
               buildStatusEmbed({
-                description: `Refresh token expires in ${displayDaysLeft} day(s) (threshold: ${threshold}). Re-authorize soon at the dashboard.`,
+                description: `The refresh token expires in ${timeLeft}. This is the ${threshold}-day alert. Re-authorize from the dashboard.`,
                 statusLabel: "Expiring soon",
                 daysLeft,
                 expiresAtIso,
