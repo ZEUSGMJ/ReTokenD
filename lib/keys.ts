@@ -44,7 +44,7 @@ export type ProfileKeys = ReturnType<typeof keysFor>;
 // ascending; callers rely on this order (smallest threshold fires first)
 export const NOTIFY_THRESHOLDS_DAYS = [1, 7, 14] as const;
 
-export const SIX_MONTHS_MS = 1000 * 60 * 60 * 24 * 30 * 6; // Spotify's ~6mo expiry window
+export const REFRESH_TOKEN_LIFETIME_MONTHS = 6;
 
 /** Every Redis key a profile can own — the purge list for deleteProfile. */
 export function allKeysFor(profile: string): string[] {
