@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import { SITE_URL } from "./components/landing/content";
 import "./globals.css";
@@ -37,6 +37,10 @@ export const metadata: Metadata = {
     title: "ReTokenD",
     description,
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#10b981",
 };
 
 export default function RootLayout({
