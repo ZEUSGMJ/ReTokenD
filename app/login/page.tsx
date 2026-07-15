@@ -96,7 +96,9 @@ export default async function LoginPage({
               required
             />
             {error && (
-              <p className="text-sm text-destructive">Incorrect password.</p>
+              <p className="text-sm text-destructive">
+                Sign-in failed. Check the password or try again later.
+              </p>
             )}
             <Button type="submit" className="w-full">
               Sign in

@@ -86,7 +86,7 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
                 ? "Spotify rejected the refresh token. Re-authorization is required."
                 : !issuedAt
                   ? "No refresh token on file. Re-authorize to get started."
-                  : "Token is expiring soon. Re-authorize to avoid an outage."}
+                  : "The refresh token expires soon. Re-authorize before it does."}
             </p>
           )}
         </div>
@@ -117,7 +117,7 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
           <form action={testNotification}>
             <input type="hidden" name="profile" value={profile} />
             <Button type="submit" variant="outline" size="sm">
-              Test Notification
+              Test notification
             </Button>
           </form>
           <form action={toggleProfileEnabled}>

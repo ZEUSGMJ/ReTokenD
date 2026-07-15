@@ -32,8 +32,8 @@ export function ProfileCredentialsForm({
     <div className="flex flex-col gap-3">
       <p className="text-xs text-muted-foreground">
         {hasCustomApp
-          ? "Custom Spotify app configured. Leave the secret blank to keep the current one."
-          : "Using the shared app from environment variables. Set a client ID and secret to use a dedicated app for this profile."}
+          ? "This profile uses a custom Spotify app. Leave the secret blank to keep the current one."
+          : "This profile uses the shared app from your environment variables. Enter a client ID and secret to give it a separate app."}
       </p>
 
       <form action={action} className="flex flex-col gap-2">
@@ -73,7 +73,7 @@ export function ProfileCredentialsForm({
         <form action={clearProfileCredentials}>
           <input type="hidden" name="profile" value={profile} />
           <Button type="submit" variant="outline" size="sm">
-            Use shared app (clear)
+            Switch to shared app
           </Button>
         </form>
       )}
