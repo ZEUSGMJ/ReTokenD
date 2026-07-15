@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { storage } from "@/lib/storage";
-import { keysFor } from "@/lib/keys";
+import { keysFor, type ProfileKeys } from "@/lib/keys";
 import { OAUTH_STATE_COOKIE_NAME, verifyOAuthStateCookie } from "@/lib/session";
 import { exchangeCodeForTokens, fetchSpotifyProfile } from "@/lib/spotify";
 import { registerProfile, clearNotificationFlags } from "@/lib/profiles";
@@ -30,6 +30,22 @@ function errorPage(message: string) {
   );
 }
 
+async function persistAuthorization(
+  profile: string,
+  keys: ProfileKeys,
+  refreshToken: string,
+  issuedAt: string
+) {
+  // issued_at must never advance unless its corresponding refresh token is durable.
+  await storage.set(keys.refreshToken, refreshToken);
+  await storage.set(keys.refreshTokenIssuedAt, issuedAt);
+  await Promise.all([
+    storage.del(keys.accessToken),
+    storage.del(keys.reauthRequired),
+    clearNotificationFlags(profile),
+  ]);
+}
+
 export async function GET(request: NextRequest) {
   // proxy checks signature + age; the generation check (server-side revocation) runs here
   if (!(await isSessionCurrent())) {
@@ -55,7 +71,7 @@ export async function GET(request: NextRequest) {
 
   const stateResult = await verifyOAuthStateCookie(stateCookie, state, sessionSecret);
   if (!stateResult) {
-    return errorPage("Invalid or expired OAuth state. Please try re-authorizing again.");
+    return errorPage("The OAuth state is invalid or has expired. Try re-authorizing.");
   }
 
   const { profile } = stateResult;
@@ -66,19 +82,13 @@ export async function GET(request: NextRequest) {
     // never reset issued_at without a refresh token to store
     if (typeof tokens.refresh_token !== "string" || tokens.refresh_token.length === 0) {
       console.error("OAuth callback: Spotify returned no refresh_token", { profile });
-      return errorPage("Spotify did not return a refresh token. Please try re-authorizing again.");
+      return errorPage("Spotify did not return a refresh token. Try re-authorizing.");
     }
 
     const keys = keysFor(profile);
     const nowIso = new Date().toISOString();
 
-    await Promise.all([
-      storage.set(keys.refreshToken, tokens.refresh_token),
-      storage.set(keys.refreshTokenIssuedAt, nowIso),
-      storage.del(keys.accessToken),
-      storage.del(keys.reauthRequired),
-      clearNotificationFlags(profile),
-    ]);
+    await persistAuthorization(profile, keys, tokens.refresh_token, nowIso);
 
     const account = await fetchSpotifyProfile(tokens.access_token);
     if (account) {
@@ -94,6 +104,6 @@ export async function GET(request: NextRequest) {
     return response;
   } catch (err) {
     console.error("OAuth callback failed", err);
-    return errorPage("Could not exchange the authorization code for tokens. Check server logs.");
+    return errorPage("ReTokenD could not exchange the authorization code. Check the server logs.");
   }
 }
