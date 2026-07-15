@@ -74,12 +74,14 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
 
       <CardContent className="flex flex-col gap-6">
         <div className="flex flex-col items-center gap-2 py-2">
-          {expiresAtIso ? (
-            <Countdown expiresAtIso={expiresAtIso} />
+          {issuedAt && expiresAtIso ? (
+            <Countdown issuedAtIso={issuedAt} expiresAtIso={expiresAtIso} status={status} />
           ) : (
-            <span className="font-mono text-3xl font-semibold">No token</span>
+            <>
+              <span className="font-mono text-3xl font-semibold">No token</span>
+              <p className="text-sm text-muted-foreground">until refresh token expires</p>
+            </>
           )}
-          <p className="text-sm text-muted-foreground">until refresh token expires</p>
           {showWarning && (
             <p className="mt-1 text-center text-sm font-medium text-destructive">
               {reauthRequired
