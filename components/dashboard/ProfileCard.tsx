@@ -1,10 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Countdown } from "@/app/components/Countdown";
-import { StatusBadge, type TokenStatus } from "@/app/components/StatusBadge";
-import { ScopeSettings } from "@/app/components/ScopeSettings";
-import { ProfileCredentialsForm } from "@/app/components/ProfileCredentialsForm";
-import { DeleteProfileButton } from "@/app/components/DeleteProfileButton";
+import { Countdown } from "@/components/dashboard/Countdown";
+import { StatusBadge, type TokenStatus } from "@/components/dashboard/StatusBadge";
+import { ScopeSettings } from "@/components/dashboard/ScopeSettings";
+import { ProfileCredentialsForm } from "@/components/dashboard/ProfileCredentialsForm";
+import { DeleteProfileButton } from "@/components/dashboard/DeleteProfileButton";
 import { DEFAULT_PROFILE } from "@/lib/keys";
 import { SPOTIFY_SCOPE_CATALOG } from "@/lib/spotify";
 import { testNotification, toggleProfileEnabled } from "@/app/actions";

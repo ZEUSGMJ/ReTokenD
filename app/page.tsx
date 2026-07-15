@@ -7,8 +7,8 @@ import { getProfileMeta, isProfileEnabled, listProfiles } from "@/lib/profiles";
 import { getConfiguredScopes, hasEnvCredentials } from "@/lib/spotify";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ProfileCard, type ProfileCardData } from "@/app/components/ProfileCard";
-import { AddProfileForm } from "@/app/components/AddProfileForm";
+import { ProfileCard, type ProfileCardData } from "@/components/dashboard/ProfileCard";
+import { AddProfileForm } from "@/components/dashboard/AddProfileForm";
 import { logout } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
