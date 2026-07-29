@@ -1,0 +1,64 @@
+name: Promote development to main
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create-promotion-pr:
+    name: Create promotion PR and enable auto-merge
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create or reuse promotion PR and enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          for branch in development main; do
+            if ! gh api "repos/$REPOSITORY/branches/$branch" >/dev/null; then
+              echo "$branch branch was not found."
+              exit 1
+            fi
+          done
+
+          ahead_by="$(gh api "repos/$REPOSITORY/compare/main...development" --jq '.ahead_by')"
+
+          if [ "$ahead_by" -eq 0 ]; then
+            echo "development has no commits ahead of main; no promotion PR is needed."
+            exit 0
+          fi
+
+          pr_number="$(
+            gh pr list \
+              --repo "$REPOSITORY" \
+              --base main \
+              --head development \
+              --state open \
+              --json number \
+              --jq '.[0].number // empty'
+          )"
+
+          if [ -n "$pr_number" ]; then
+            echo "Promotion PR already exists: #$pr_number"
+          else
+            pr_url="$(
+              gh pr create \
+                --repo "$REPOSITORY" \
+                --base main \
+                --head development \
+                --title "Promote development to main" \
+                --body "Promotes $ahead_by commits from development to main. Required checks must pass before auto-merge completes."
+            )"
+
+            pr_number="$(gh pr view "$pr_url" --repo "$REPOSITORY" --json number --jq '.number')"
+            echo "Created promotion PR #$pr_number."
+          fi
+
+          gh pr merge "$pr_number" --repo "$REPOSITORY" --auto --merge
+          echo "Enabled auto-merge for promotion PR #$pr_number."
