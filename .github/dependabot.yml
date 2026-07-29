@@ -6,6 +6,14 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      # Majors are excluded so they stay in their own reviewable PRs
+      app-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   # Public site is a standalone project with its own lockfile
   - package-ecosystem: "npm"
@@ -13,3 +21,10 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      site-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
