@@ -7,7 +7,11 @@ import { storage } from "@/lib/storage";
 import { DEFAULT_PROFILE, isValidProfileId, keysFor } from "@/lib/keys";
 import { tokenLifecycle, type TokenStatus } from "@/lib/lifecycle";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
-import { bumpSessionGeneration } from "@/lib/session-server";
+import {
+  bumpSessionGeneration,
+  isSessionCurrent,
+  requireCurrentSession,
+} from "@/lib/session-server";
 import { ALL_SCOPE_IDS } from "@/lib/spotify";
 import {
   deleteProfile as removeProfile,
@@ -28,6 +32,7 @@ export async function logout() {
 
 /** Whitelisted against the catalog; applied on the next re-auth. */
 export async function saveScopes(formData: FormData) {
+  await requireCurrentSession();
   const profile = String(formData.get("profile") ?? DEFAULT_PROFILE);
   if (!isValidProfileId(profile)) return;
   if (!(await profileExists(profile))) return;
@@ -42,6 +47,7 @@ export async function saveScopes(formData: FormData) {
 }
 
 export async function testNotification(formData: FormData) {
+  await requireCurrentSession();
   const profile = String(formData.get("profile") ?? DEFAULT_PROFILE);
   if (!isValidProfileId(profile)) return;
   if (!(await profileExists(profile))) return;
@@ -78,6 +84,7 @@ export async function testNotification(formData: FormData) {
 }
 
 export async function toggleProfileEnabled(formData: FormData) {
+  await requireCurrentSession();
   const profile = String(formData.get("profile") ?? "");
   if (!isValidProfileId(profile)) return;
   if (!(await profileExists(profile))) return;
@@ -94,6 +101,8 @@ export async function createProfile(
   _prev: CreateProfileState,
   formData: FormData
 ): Promise<CreateProfileState> {
+  if (!(await isSessionCurrent())) return { error: "unauthorized" };
+
   const id = String(formData.get("profileId") ?? "")
     .trim()
     .toLowerCase();
@@ -115,6 +124,8 @@ export async function saveProfileCredentials(
   _prev: CredentialsState,
   formData: FormData
 ): Promise<CredentialsState> {
+  if (!(await isSessionCurrent())) return { error: "unauthorized" };
+
   const profile = String(formData.get("profile") ?? "");
   if (!isValidProfileId(profile)) return { error: "invalid_profile" };
   if (!(await profileExists(profile))) return { error: "invalid_profile" };
@@ -138,6 +149,7 @@ export async function saveProfileCredentials(
 }
 
 export async function deleteProfile(formData: FormData) {
+  await requireCurrentSession();
   const profile = String(formData.get("profile") ?? "");
   if (!isValidProfileId(profile) || profile === DEFAULT_PROFILE) return;
   if (!(await profileExists(profile))) return;
@@ -147,6 +159,7 @@ export async function deleteProfile(formData: FormData) {
 
 /** Falls back to the env/global Spotify app. */
 export async function clearProfileCredentials(formData: FormData) {
+  await requireCurrentSession();
   const profile = String(formData.get("profile") ?? "");
   if (!isValidProfileId(profile)) return;
   if (!(await profileExists(profile))) return;

@@ -14,12 +14,11 @@ import { Input } from "@/components/ui/input";
 
 const LOGIN_ERROR_PARAM = "error";
 
-// lockout applies even to correct passwords until the window expires
+// per-IP lockout applies even to correct passwords until the window expires
 const LOGIN_MAX_FAILURES = 10;
 const LOGIN_WINDOW_SECONDS = 15 * 60;
-// global fallback so a spoofed X-Forwarded-For can't yield unlimited guesses
+// recorded for observability only; gating on it let anyone lock the admin out
 const LOGIN_GLOBAL_KEY = "login:fail:global";
-const LOGIN_GLOBAL_MAX_FAILURES = 50;
 
 async function clientIp(): Promise<string> {
   const h = await headers();
@@ -36,14 +35,7 @@ async function login(formData: FormData) {
   const sessionSecret = getSessionSecret();
 
   const failKey = `login:fail:${await clientIp()}`;
-  const [perIp, global] = await Promise.all([
-    storage.get<number>(failKey),
-    storage.get<number>(LOGIN_GLOBAL_KEY),
-  ]);
-
-  if ((perIp ?? 0) >= LOGIN_MAX_FAILURES || (global ?? 0) >= LOGIN_GLOBAL_MAX_FAILURES) {
-    redirect(`/login?${LOGIN_ERROR_PARAM}=1`);
-  }
+  const perIp = await storage.get<number>(failKey);
 
   const valid =
     adminPassword.length > 0 && constantTimeEquals(password, adminPassword);
@@ -54,6 +46,12 @@ async function login(formData: FormData) {
       storage.incr(failKey, LOGIN_WINDOW_SECONDS),
       storage.incr(LOGIN_GLOBAL_KEY, LOGIN_WINDOW_SECONDS),
     ]);
+    redirect(`/login?${LOGIN_ERROR_PARAM}=1`);
+  }
+
+  // the global counter is trippable by anyone, so it must never reject a
+  // password that already verified; only the per-IP counter locks out
+  if ((perIp ?? 0) >= LOGIN_MAX_FAILURES) {
     redirect(`/login?${LOGIN_ERROR_PARAM}=1`);
   }
 

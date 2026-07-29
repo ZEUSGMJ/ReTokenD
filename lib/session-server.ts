@@ -33,3 +33,8 @@ export async function isSessionCurrent(): Promise<boolean> {
   if (!payload) return false;
   return isCurrent(payload, await getSessionGeneration());
 }
+
+/** Throws when the cookie was revoked; the proxy cannot catch this itself. */
+export async function requireCurrentSession(): Promise<void> {
+  if (!(await isSessionCurrent())) throw new Error("unauthorized");
+}
