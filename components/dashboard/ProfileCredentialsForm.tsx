@@ -15,6 +15,7 @@ const ERROR_TEXT: Record<string, string> = {
   invalid_profile: "Invalid profile.",
   missing_client_id: "Client ID is required.",
   missing_client_secret: "Client secret is required the first time.",
+  unauthorized: "Session expired. Sign in again.",
 };
 
 export function ProfileCredentialsForm({

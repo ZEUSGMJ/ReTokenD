@@ -24,7 +24,9 @@ export function AddProfileForm() {
           Create
         </Button>
       </div>
-      {state.error === "invalid_profile" ? (
+      {state.error === "unauthorized" ? (
+        <p className="text-xs text-destructive">Session expired. Sign in again.</p>
+      ) : state.error === "invalid_profile" ? (
         <p className="text-xs text-destructive">
           Profile IDs can only use lowercase letters, numbers, and hyphens, up to 32 characters.
         </p>
