@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
-import { SITE_URL } from "./components/landing/content";
+import { GITHUB_URL, SITE_URL } from "./components/landing/content";
 import "./globals.css";
 
 const inter = Inter({
@@ -18,15 +18,30 @@ const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
 });
 
+const title = "ReTokenD – Spotify Refresh Token Manager";
+
 const description =
-  "A self-hosted service that keeps Spotify refresh tokens in one place, issues short-lived access tokens, and handles six-month re-authorization.";
+  "ReTokenD is a self-hosted token management service for Spotify. Instead of every application managing its own refresh token, ReTokenD stores them centrally, issues short-lived access tokens on demand, and handles the re-authorization flow when refresh tokens expire.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "ReTokenD: self-hosted Spotify token manager",
+  title,
   description,
+  alternates: {
+    canonical: "/",
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
   openGraph: {
-    title: "ReTokenD",
+    title,
     description,
     type: "website",
     siteName: "ReTokenD",
@@ -34,13 +49,31 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "ReTokenD",
+    title,
     description,
   },
 };
 
 export const viewport: Viewport = {
   themeColor: "#10b981",
+};
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "ReTokenD",
+  description,
+  url: SITE_URL,
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "Docker, Node.js, Vercel",
+  license: "https://www.gnu.org/licenses/gpl-3.0.html",
+  codeRepository: GITHUB_URL,
+  isAccessibleForFree: true,
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
 };
 
 export default function RootLayout({
@@ -55,6 +88,10 @@ export default function RootLayout({
       style={{ colorScheme: "dark" }}
     >
       <body className="min-h-full font-sans">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        />
         <a href="#main-content" className="skip-link">
           Skip to content
         </a>
