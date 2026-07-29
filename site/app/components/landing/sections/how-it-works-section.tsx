@@ -23,7 +23,8 @@ function FlowConnector({ top, bottom }: { top: string; bottom: string }) {
   return (
     <div className="flex flex-row items-center justify-center gap-3 px-2 py-3 lg:flex-col lg:gap-2 lg:py-2">
       <span className="whitespace-nowrap font-mono text-[11px] text-ink-2">{top}</span>
-      <span aria-hidden="true" className="h-px w-8 bg-rule lg:h-8 lg:w-px" />
+      {/* the rule runs along the flow: vertical between stacked cards, horizontal between columns */}
+      <span aria-hidden="true" className="h-8 w-px bg-rule lg:h-px lg:w-full" />
       <span className="whitespace-nowrap font-mono text-[11px] text-faint">{bottom}</span>
     </div>
   );
