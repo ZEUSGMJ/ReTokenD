@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Main app at the repo root
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "development"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # Public site is a standalone project with its own lockfile
+  - package-ecosystem: "npm"
+    directory: "/site"
+    target-branch: "development"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
