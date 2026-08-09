@@ -150,6 +150,7 @@ Vercel runs the included schedule at 09:00 UTC each day. A self-hosted instance 
 - Password and bearer comparisons use constant-time helpers.
 - Session and OAuth-state cookies are signed, HTTP-only, and secure.
 - The application blocks indexing with `robots.txt`, metadata, and `X-Robots-Tag` headers.
+- Every response also sets `X-Frame-Options`, `X-Content-Type-Options`, and `Referrer-Policy`.
 
 For design details and trust boundaries, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -166,3 +167,5 @@ pnpm dev
 ```
 
 The `--ignore-workspace` flag keeps pnpm from attaching the standalone site to the root workspace. Unlike the token manager, the landing page is public and indexable.
+
+Set `NEXT_PUBLIC_SITE_URL` to the site's real domain when you deploy it. The canonical URL, `sitemap.xml`, `robots.txt`, and OpenGraph tags all derive from it, and without it they fall back to the Vercel-assigned `.vercel.app` host.

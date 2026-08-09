@@ -18,10 +18,10 @@ const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
 });
 
-const title = "ReTokenD – Spotify Refresh Token Manager";
+const title = "ReTokenD, Spotify Refresh Token Manager";
 
 const description =
-  "ReTokenD is a self-hosted token management service for Spotify. Instead of every application managing its own refresh token, ReTokenD stores them centrally, issues short-lived access tokens on demand, and handles the re-authorization flow when refresh tokens expire.";
+  "A self-hosted service that keeps Spotify refresh tokens in one place and gives your projects short-lived access tokens instead.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

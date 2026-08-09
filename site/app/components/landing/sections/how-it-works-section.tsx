@@ -47,12 +47,11 @@ export function HowItWorksSection() {
         <FlowConnector top="access token" bottom="short-lived" />
         <FlowNode label="this service" title="ReTokenD">
           Stores refresh tokens in Redis, fetches access tokens on demand, and tracks the
-          six-month countdown for each profile.{" "}
-          <span className="font-medium text-ink">The refresh tokens never leave this box.</span>
+          six-month countdown for each profile. The refresh tokens never leave this box.
         </FlowNode>
         <FlowConnector top="token refresh" bottom="oauth" />
         <FlowNode label="upstream" title="Spotify">
-          Uses standard OAuth. When the window closes, re-authorize from the dashboard. Each
+          Uses standard OAuth. When the window closes, reauthorize from the dashboard. Each
           project gets a working token on its next request.
         </FlowNode>
       </div>
