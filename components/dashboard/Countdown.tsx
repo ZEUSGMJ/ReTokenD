@@ -76,7 +76,7 @@ export function Countdown({ issuedAtIso, expiresAtIso, status }: CountdownProps)
         : "bg-destructive";
   const valueText =
     status === "expired-or-reauth-required"
-      ? "Re-authorization required"
+      ? "Reauthorization required"
       : `${roundedProgress}% of refresh token lifetime remaining`;
 
   return (

@@ -85,10 +85,10 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
           {showWarning && (
             <p className="mt-1 text-center text-sm font-medium text-destructive">
               {reauthRequired
-                ? "Spotify rejected the refresh token. Re-authorization is required."
+                ? "Spotify rejected the refresh token. Reauthorization is required."
                 : !issuedAt
-                  ? "No refresh token on file. Re-authorize to get started."
-                  : "The refresh token expires soon. Re-authorize before it does."}
+                  ? "No refresh token on file. Reauthorize to get started."
+                  : "The refresh token expires soon. Reauthorize before it does."}
             </p>
           )}
         </div>
@@ -114,7 +114,7 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
 
         <div className="flex flex-wrap gap-2">
           <Button render={<a href={`/api/login?profile=${profile}`} />} nativeButton={false} size="sm">
-            Re-authorize
+            Reauthorize
           </Button>
           <form action={testNotification}>
             <input type="hidden" name="profile" value={profile} />

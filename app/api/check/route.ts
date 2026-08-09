@@ -32,12 +32,12 @@ async function checkProfile(profile: string): Promise<string[]> {
     const alreadyNotifiedReauth = await storage.get<string>(keys.notifiedReauth);
     if (!alreadyNotifiedReauth) {
       const delivered = await notify(
-        `ReTokenD [${profile}]: re-authorization is required. The refresh token was rejected by Spotify. Visit the dashboard and click Re-authorize.`,
+        `ReTokenD [${profile}]: reauthorization is required. The refresh token was rejected by Spotify. Visit the dashboard and click Reauthorize.`,
         [
           buildStatusEmbed({
             description:
-              "Spotify rejected the refresh token. Re-authorize from the dashboard.",
-            statusLabel: "Re-auth required",
+              "Spotify rejected the refresh token. Reauthorize from the dashboard.",
+            statusLabel: "Reauth required",
             daysLeft,
             expiresAtIso,
             profile,
@@ -64,10 +64,10 @@ async function checkProfile(profile: string): Promise<string[]> {
         if (!alreadyNotified) {
           const timeLeft = formatDays(displayDaysLeft);
           const delivered = await notify(
-            `ReTokenD [${profile}]: the refresh token expires in ${timeLeft}. Re-authorize from the dashboard.`,
+            `ReTokenD [${profile}]: the refresh token expires in ${timeLeft}. Reauthorize from the dashboard.`,
             [
               buildStatusEmbed({
-                description: `The refresh token expires in ${timeLeft}. This is the ${threshold}-day alert. Re-authorize from the dashboard.`,
+                description: `The refresh token expires in ${timeLeft}. This is the ${threshold}-day alert. Reauthorize from the dashboard.`,
                 statusLabel: "Expiring soon",
                 daysLeft,
                 expiresAtIso,

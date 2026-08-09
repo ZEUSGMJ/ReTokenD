@@ -67,7 +67,7 @@ export async function testNotification(formData: FormData) {
   const STATUS_LABELS: Record<TokenStatus, string> = {
     valid: "Valid",
     "expiring-soon": "Expiring Soon",
-    "expired-or-reauth-required": "Expired / Re-auth Required",
+    "expired-or-reauth-required": "Expired / Reauth Required",
   };
   const statusLabel = STATUS_LABELS[status];
 

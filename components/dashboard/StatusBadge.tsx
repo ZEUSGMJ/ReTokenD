@@ -18,6 +18,6 @@ export function StatusBadge({ status }: { status: TokenStatus }) {
         </Badge>
       );
     case "expired-or-reauth-required":
-      return <Badge variant="destructive">Re-auth required</Badge>;
+      return <Badge variant="destructive">Reauth required</Badge>;
   }
 }
