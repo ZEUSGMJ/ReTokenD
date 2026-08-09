@@ -2,6 +2,8 @@
 
 This is the behavioral contract for the current multi-profile implementation of ReTokenD. It supersedes the original single-token, Upstash-only version. Read [CLAUDE.md](CLAUDE.md) before changing the implementation and [ARCHITECTURE.md](ARCHITECTURE.md) for design rationale.
 
+The `site/` directory is a separate public landing page, deployed as its own Vercel project. It has no access to the storage, sessions, or Spotify credentials described here and is outside this spec.
+
 ## Product contract
 
 ReTokenD is a private, single-admin Next.js application that owns Spotify refresh tokens for one or more profiles. Trusted projects authenticate to ReTokenD and receive short-lived access tokens. They never receive the underlying refresh token.

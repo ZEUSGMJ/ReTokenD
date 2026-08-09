@@ -41,7 +41,8 @@ app/api/login/route.ts       Starts Spotify authorization
 app/api/callback/route.ts    Completes authorization and stores the refresh token
 app/api/token/route.ts       Serves cached or freshly obtained access tokens
 app/api/check/route.ts       Runs expiry and reauthorization checks
-app/components/              Dashboard components and forms
+components/dashboard/        Dashboard cards, forms, and countdown display
+components/ui/               shadcn/ui primitives
 lib/storage/                 Redis and Upstash adapters
 lib/keys.ts                  Redis key definitions and profile-id rules
 lib/profiles.ts              Profile registry, enabled state, and legacy migration
@@ -49,9 +50,11 @@ lib/spotify.ts               Spotify OAuth, scopes, and credential resolution
 lib/lifecycle.ts             Six-month expiry and display-status calculations
 lib/session.ts               Storage-free Web Crypto cookie signing and verification
 lib/session-server.ts        Redis-backed session generation and revocation
+lib/proxy-paths.ts           Session-exempt path set read by proxy.ts
 lib/auth.ts                  Constant-time password and bearer helpers
 lib/crypto.ts                AES-256-GCM for stored client secrets
 lib/notify.ts                Discord notification delivery and embed construction
+lib/utils.ts                 Shared helpers (className merging)
 ```
 
 ## Runtime boundaries
@@ -161,7 +164,7 @@ Every proxy response receives `X-Robots-Tag: noindex, nofollow`.
 
 Environment variables hold admin, bearer, signing, encryption, Spotify, storage, callback, cron, and Discord credentials. Redis stores Spotify tokens in plaintext because Redis is part of the trusted server boundary. Dashboard-entered Spotify client secrets are encrypted with AES-256-GCM using `CREDENTIALS_SECRET`, or `SESSION_SECRET` as a fallback, so a Redis dump alone does not expose them.
 
-The private application discourages indexing in three layers: `robots.ts`, no-index metadata, and `X-Robots-Tag` response headers. Authentication remains the actual content boundary.
+The private application discourages indexing in three layers: `robots.ts`, no-index metadata, and `X-Robots-Tag` response headers. `next.config.ts` also sets `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and `Referrer-Policy: no-referrer` on every response. Authentication remains the actual content boundary.
 
 ## Deployment shapes
 
