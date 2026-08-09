@@ -1,27 +1,5 @@
-import { FEATURES, STATS } from "../content";
+import { FEATURES } from "../content";
 import { ExternalLink } from "../ui/external-link";
-
-function KeyFactsSection() {
-  return (
-    <section aria-label="Key facts" className="border-y border-rule">
-      <div className="mx-auto grid max-w-6xl grid-cols-2 px-5 min-[60rem]:grid-cols-4">
-        {STATS.map(([num, label], index) => (
-          <div
-            key={label}
-            className={`flex flex-col gap-1 border-rule py-8 min-[60rem]:px-6 ${
-              index >= 2 ? "border-t min-[60rem]:border-t-0" : ""
-            } ${index > 0 ? "min-[60rem]:border-l" : ""}`}
-          >
-            <span className="tabular-nums font-display text-3xl font-semibold text-ink sm:text-4xl">
-              {num}
-            </span>
-            <span className="text-sm text-ink-2">{label}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
 
 function WhySection() {
   return (
@@ -40,7 +18,7 @@ function WhySection() {
         limits refresh tokens to six months for apps created on or after June 18, 2026, and applies
         the same limit to existing apps from July 20, 2026. Refreshing an access token doesn&apos;t
         extend the window. I use the same account across several projects, so an expiry meant
-        re-authorizing and updating each project&apos;s env by hand. I didn&apos;t want to keep doing that.
+        reauthorizing and updating each project&apos;s env by hand. I didn&apos;t want to keep doing that.
       </p>
     </section>
   );
@@ -77,7 +55,7 @@ function FeaturesSection() {
 export function OverviewSections() {
   return (
     <>
-      <KeyFactsSection />
+      <div aria-hidden="true" className="border-t border-rule" />
       <WhySection />
       <FeaturesSection />
     </>

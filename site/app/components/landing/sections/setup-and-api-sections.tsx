@@ -45,12 +45,12 @@ KV_REST_API_URL=…
 KV_REST_API_TOKEN=…`;
 
 const tokenRequest = `curl -H "Authorization: Bearer $RETOKEND_SECRET" ${"\\"}
-  "https://<retokend>/api/token?profile=your_profile"`;
+  "https://<retokend>/api/token?profile=portfolio"`;
 
 const tokenResponse = `{
   "access_token": "BQDe3f…",
   "expires_at": 1750000000000,
-  "profile": "your_profile"
+  "profile": "portfolio"
 }`;
 
 function SetupSection() {
@@ -87,7 +87,7 @@ function SetupSection() {
             notes={[
               "Compose supplies the app’s internal REDIS_URL.",
               "The app runs on :3000 with Redis on a persistent volume.",
-              "The same setup also runs on Coolify, Railway, Fly.io, or a VPS.",
+              "Also runs on any platform that can run its Docker image and connect to Redis.",
             ]}
           />
 
@@ -125,7 +125,7 @@ function ApiSection() {
           language="shellscript"
           code={tokenRequest}
           notes={[
-            "400 invalid profile · 401 bad bearer · 403 profile disabled · 404 unknown profile · 409 re-auth required · 502 Spotify error",
+            "400 invalid profile · 401 bad bearer · 403 profile disabled · 404 unknown profile · 409 reauth required · 502 Spotify error",
           ]}
         />
 

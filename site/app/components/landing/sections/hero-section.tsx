@@ -60,7 +60,7 @@ function DashboardPreview() {
         </div>
         <div className="flex flex-wrap gap-2 text-xs">
           <span className="rounded-pill border border-rule px-3 py-1.5 font-medium text-ink">
-            Re-authorize
+            Reauthorize
           </span>
           <span className="rounded-pill border border-rule px-3 py-1.5 font-medium text-ink-2">
             Test notification
@@ -96,7 +96,7 @@ export function HeroSection() {
         <p className="mt-6 max-w-[60ch] text-lg leading-relaxed text-ink">
           I built ReTokenD because I was tired of replacing Spotify tokens in every project that
           used them. It keeps refresh tokens in one place, gives those projects short-lived access
-          tokens through a single endpoint, and handles re-authorization from one dashboard.
+          tokens through a single endpoint, and handles reauthorization from one dashboard.
         </p>
         <p className="mt-4 max-w-[60ch] font-mono text-sm text-faint">
           Spotify applies a six-month refresh-token lifetime to new apps from June 18, 2026 and
