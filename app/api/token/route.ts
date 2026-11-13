@@ -130,6 +130,10 @@ export async function GET(request: NextRequest) {
     await Promise.all(ops);
 
     return NextResponse.json({ access_token, expires_at: expiresAt, profile });
+  } catch (err) {
+    // network failure, missing credentials, or undecryptable secret — keep the JSON contract
+    console.error("Spotify refresh threw", err);
+    return NextResponse.json({ error: "spotify_error" }, { status: 502 });
   } finally {
     if (gotLock) {
       await storage.releaseLock(keys.refreshLock, lockOwner);
