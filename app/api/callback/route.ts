@@ -22,7 +22,7 @@ function escapeHtml(value: string): string {
 function errorPage(message: string) {
   return new NextResponse(
     `<!doctype html><html><body style="font-family:sans-serif;padding:2rem">
-      <h1>Re-authorization failed</h1>
+      <h1>Reauthorization failed</h1>
       <p>${escapeHtml(message)}</p>
       <p><a href="/">Back to dashboard</a></p>
     </body></html>`,
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
 
   const stateResult = await verifyOAuthStateCookie(stateCookie, state, sessionSecret);
   if (!stateResult) {
-    return errorPage("The OAuth state is invalid or has expired. Try re-authorizing.");
+    return errorPage("The OAuth state is invalid or has expired. Try reauthorizing.");
   }
 
   const { profile } = stateResult;
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
     // never reset issued_at without a refresh token to store
     if (typeof tokens.refresh_token !== "string" || tokens.refresh_token.length === 0) {
       console.error("OAuth callback: Spotify returned no refresh_token", { profile });
-      return errorPage("Spotify did not return a refresh token. Try re-authorizing.");
+      return errorPage("Spotify did not return a refresh token. Try reauthorizing.");
     }
 
     const keys = keysFor(profile);

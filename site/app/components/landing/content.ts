@@ -32,7 +32,7 @@ export const FEATURES: Array<{
   {
     name: "Self-hosted",
     blurb:
-      "Run it with Docker and Redis, or deploy it to Vercel with Upstash. Coolify, Railway, Fly.io, and a plain VPS work too.",
+      "Run it with Docker and Redis, or deploy it to Vercel with Upstash. It also runs anywhere that can run its Docker image and connect to Redis.",
     icon: Server,
   },
   {
@@ -50,13 +50,13 @@ export const FEATURES: Array<{
   {
     name: "Expiry countdown",
     blurb:
-      "Each profile shows the time left in its six-month window, so you can re-authorize before it expires.",
+      "Each profile shows the time left in its six-month window, so you can reauthorize before it expires.",
     icon: Clock,
   },
   {
     name: "Discord alerts",
     blurb:
-      "Optional webhook messages when a token gets close to expiry or a profile needs re-authorizing.",
+      "Optional webhook messages when a token gets close to expiry or a profile needs reauthorizing.",
     icon: Bell,
   },
   {
@@ -65,13 +65,6 @@ export const FEATURES: Array<{
       "The dashboard sits behind a password with rate-limited logins, and the app is hidden from search engines.",
     icon: LockKeyhole,
   },
-];
-
-export const STATS: Array<[string, string]> = [
-  ["6 mo", "refresh token lifetime"],
-  ["Central", "re-authorization flow"],
-  ["0", "refresh tokens ever returned"],
-  ["409", "response while re-auth is pending"],
 ];
 
 export const STEPS: Array<[string, string, string]> = [
@@ -83,7 +76,7 @@ export const STEPS: Array<[string, string, string]> = [
   ],
   [
     "03",
-    "Re-authorize when needed",
-    "When the six months are up, re-authorize from the dashboard. Each project gets a working token on its next request.",
+    "Reauthorize when needed",
+    "When the six months are up, reauthorize from the dashboard. Each project gets a working token on its next request.",
   ],
 ];

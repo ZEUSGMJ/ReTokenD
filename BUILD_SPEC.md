@@ -2,6 +2,8 @@
 
 This is the behavioral contract for the current multi-profile implementation of ReTokenD. It supersedes the original single-token, Upstash-only version. Read [CLAUDE.md](CLAUDE.md) before changing the implementation and [ARCHITECTURE.md](ARCHITECTURE.md) for design rationale.
 
+The `site/` directory is a separate public landing page, deployed as its own Vercel project. It has no access to the storage, sessions, or Spotify credentials described here and is outside this spec.
+
 ## Product contract
 
 ReTokenD is a private, single-admin Next.js application that owns Spotify refresh tokens for one or more profiles. Trusted projects authenticate to ReTokenD and receive short-lived access tokens. They never receive the underlying refresh token.
@@ -162,9 +164,9 @@ This scheduler route requires `Authorization: Bearer <CRON_SECRET>` and returns 
 `GET /login` renders without a session. Its server action:
 
 - Uses fixed 15-minute counters at `login:fail:<ip>` and `login:fail:global`.
-- Rejects requests at 10 per-IP failures or 50 global failures, even if the supplied password is correct.
 - Compares the password with `ADMIN_PASSWORD` in constant time.
 - Increments both counters after a failed comparison.
+- Rejects a correct password once its IP has 10 failures in the window. The global counter is observability only and never rejects a login.
 - Clears the per-IP counter after an allowed successful comparison.
 - Creates a signed, secure, HTTP-only, same-site, 30-day session cookie containing `{iat, gen}`.
 
@@ -203,7 +205,7 @@ The included Vercel schedule runs `/api/check` at `0 9 * * *`. Self-hosted insta
 3. **Cache and refresh:** Repeated requests reuse a valid cached token. Concurrent cache misses normally produce one Spotify refresh call. Refresh-token rotation does not change `issued_at`.
 4. **Terminal refresh failure:** An invalid refresh token causes `409 reauth_required` and sets the flag. Later requests return `409` without another Spotify call until reauthorization.
 5. **Scopes:** A missing scope record uses `DEFAULT_SCOPES`; a saved empty array requests no optional scopes; saved selections appear on the next Spotify authorization.
-6. **Sessions:** Unauthenticated human routes redirect to `/login`. Ten per-IP failures or 50 global failures enforce the lockout window. Logout invalidates previously issued session cookies.
+6. **Sessions:** Unauthenticated human routes redirect to `/login`. Ten per-IP failures enforce the lockout window; global failures never block a correct password. Logout invalidates previously issued session cookies.
 7. **Notifications:** Expiry and reauthorization alerts include the profile and are deduplicated only after successful delivery. A dashboard test sends immediately.
 8. **Crawler controls:** `/robots.txt` disallows all and dynamic responses include `X-Robots-Tag: noindex, nofollow`.
 9. **Storage parity:** Both adapters encode values consistently and preserve atomic counters and owner-checked locks.

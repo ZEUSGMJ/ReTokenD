@@ -50,6 +50,8 @@ Set `BASE_URL` to the address you will actually use and register `<BASE_URL>/api
 
 > For local OAuth, use `http://127.0.0.1:3000`, not `http://localhost:3000`. Spotify permits plain HTTP for the loopback IP address only.
 
+If you expose the container to the internet, put it behind a reverse proxy that overwrites `X-Forwarded-For` with the real client IP. The login rate limit keys on that header, so without a proxy anyone can change it and get unlimited password attempts. Vercel already sets it correctly.
+
 ## Deploy on Vercel
 
 1. Import the repository into Vercel.
@@ -146,10 +148,11 @@ Vercel runs the included schedule at 09:00 UTC each day. A self-hosted instance 
 - Dashboard-stored Spotify client secrets are encrypted with AES-256-GCM.
 - Human-facing routes require the admin session.
 - Consumer and cron endpoints use separate bearer secrets.
-- Password attempts are rate-limited per IP and globally.
+- Password attempts are rate-limited per client IP.
 - Password and bearer comparisons use constant-time helpers.
 - Session and OAuth-state cookies are signed, HTTP-only, and secure.
 - The application blocks indexing with `robots.txt`, metadata, and `X-Robots-Tag` headers.
+- Every response also sets `X-Frame-Options`, `X-Content-Type-Options`, and `Referrer-Policy`.
 
 For design details and trust boundaries, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -166,3 +169,5 @@ pnpm dev
 ```
 
 The `--ignore-workspace` flag keeps pnpm from attaching the standalone site to the root workspace. Unlike the token manager, the landing page is public and indexable.
+
+Set `NEXT_PUBLIC_SITE_URL` to the site's real domain when you deploy it. The canonical URL, `sitemap.xml`, `robots.txt`, and OpenGraph tags all derive from it, and without it they fall back to the Vercel-assigned `.vercel.app` host.

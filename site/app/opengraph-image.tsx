@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 export const dynamic = "force-static";
-export const alt = "ReTokenD — self-hosted Spotify token manager";
+export const alt = "ReTokenD, self-hosted Spotify token manager";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -49,7 +49,7 @@ export default function OpengraphImage() {
             color: "#9aa8a1",
           }}
         >
-          Manage multiple Spotify accounts in one place, and give your apps short-lived access tokens through a single secure endpoint.
+          Keeps Spotify refresh tokens in one place and gives your projects short-lived access tokens instead.
         </div>
       </div>
     ),
