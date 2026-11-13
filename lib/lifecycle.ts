@@ -50,8 +50,9 @@ export function tokenLifecycle(
   const expiresAtMs = new Date(expiresAtIso).getTime();
   const daysLeft = Math.floor((expiresAtMs - nowMs) / MS_PER_DAY);
 
+  // compare instants, not floored days — the last day before expiry is still usable
   let status: TokenStatus;
-  if (reauthRequired || daysLeft <= 0) status = "expired-or-reauth-required";
+  if (reauthRequired || expiresAtMs <= nowMs) status = "expired-or-reauth-required";
   else if (daysLeft <= EXPIRING_SOON_DAYS) status = "expiring-soon";
   else status = "valid";
 

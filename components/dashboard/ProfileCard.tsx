@@ -88,7 +88,9 @@ export function ProfileCard({ data }: { data: ProfileCardData }) {
                 ? "Spotify rejected the refresh token. Reauthorization is required."
                 : !issuedAt
                   ? "No refresh token on file. Reauthorize to get started."
-                  : "The refresh token expires soon. Reauthorize before it does."}
+                  : status === "expired-or-reauth-required"
+                    ? "The refresh token has expired. Reauthorize to get a new one."
+                    : "The refresh token expires soon. Reauthorize before it does."}
             </p>
           )}
         </div>

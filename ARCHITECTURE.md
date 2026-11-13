@@ -152,7 +152,9 @@ A successful callback must contain a non-empty refresh token. ReTokenD stores th
 
 ## Administrator sessions
 
-The login action applies two atomic, fixed-window limits: 10 failures per client IP and 50 failures globally within 15 minutes. The global limit prevents an exposed self-hosted instance from relying entirely on a spoofable forwarded-IP header. Once either limit is reached, even a correct password is rejected until the window expires. An allowed successful login clears its per-IP counter.
+The login action applies an atomic, fixed-window limit of 10 failures per client IP within 15 minutes. Once an IP reaches it, even a correct password from that IP is rejected until the window expires. An allowed successful login clears its per-IP counter. Failures are also counted globally at `login:fail:global`, but only for observability: gating on a counter anyone can increment would let a stranger lock the administrator out.
+
+The client IP is the first `X-Forwarded-For` entry, falling back to `X-Real-IP`. Vercel sets that header itself. A self-hosted instance must run behind a reverse proxy that overwrites it; otherwise a client can rotate the header and bypass the limit.
 
 After a constant-time password comparison, the action creates a signed 30-day `{iat, gen}` session cookie. The proxy checks its HMAC and age. The dashboard, OAuth start route, and OAuth callback also compare its generation with `session:generation` in Redis. Logout increments that value and deletes the browser cookie, invalidating every previously issued session.
 

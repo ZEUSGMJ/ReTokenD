@@ -21,7 +21,7 @@ async function checkProfile(profile: string): Promise<string[]> {
     storage.get<string>(keys.reauthRequired),
   ]);
 
-  const { expiresAtIso, daysLeft } = tokenLifecycle(
+  const { expiresAtIso, daysLeft, status } = tokenLifecycle(
     issuedAt,
     Date.now(),
     Boolean(reauthRequired)
@@ -54,7 +54,11 @@ async function checkProfile(profile: string): Promise<string[]> {
   }
 
   if (issuedAt && daysLeft !== null) {
-    const displayDaysLeft = Math.max(daysLeft, 0);
+    // reauth already returned above, so this status means the lifetime ran out
+    const expired = status === "expired-or-reauth-required";
+    const headline = expired
+      ? "the refresh token has expired"
+      : `the refresh token expires in ${formatDays(Math.max(daysLeft, 0))}`;
 
     // NOTIFY_THRESHOLDS_DAYS is ascending: fire only the smallest not-yet-notified threshold
     for (const threshold of NOTIFY_THRESHOLDS_DAYS) {
@@ -62,13 +66,12 @@ async function checkProfile(profile: string): Promise<string[]> {
         const notifiedKey = keys.notified(threshold);
         const alreadyNotified = await storage.get<string>(notifiedKey);
         if (!alreadyNotified) {
-          const timeLeft = formatDays(displayDaysLeft);
           const delivered = await notify(
-            `ReTokenD [${profile}]: the refresh token expires in ${timeLeft}. Reauthorize from the dashboard.`,
+            `ReTokenD [${profile}]: ${headline}. Reauthorize from the dashboard.`,
             [
               buildStatusEmbed({
-                description: `The refresh token expires in ${timeLeft}. This is the ${threshold}-day alert. Reauthorize from the dashboard.`,
-                statusLabel: "Expiring soon",
+                description: `${headline.charAt(0).toUpperCase()}${headline.slice(1)}. This is the ${threshold}-day alert. Reauthorize from the dashboard.`,
+                statusLabel: expired ? "Expired" : "Expiring soon",
                 daysLeft,
                 expiresAtIso,
                 profile,
